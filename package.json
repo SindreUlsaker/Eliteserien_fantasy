@@ -1,0 +1,47 @@
+{
+  "name": "eliteserien-fantasy",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Fullstack webapp for Eliteserien Fantasy - statistics, team optimization, and decision support",
+  "scripts": {
+    "dev": "concurrently \"pnpm --filter web dev\" \"pnpm --filter api dev\"",
+    "build": "pnpm --filter web build && pnpm --filter api build",
+    "lint": "pnpm --filter web lint && pnpm --filter api lint",
+    "lint:fix": "pnpm --filter web lint --fix && pnpm --filter api lint --fix",
+    "typecheck": "pnpm --filter web typecheck && pnpm --filter api typecheck",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,yml,yaml}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md,yml,yaml}\"",
+    "db:migrate": "dotenv -e .env -- prisma migrate dev --schema=prisma/schema.prisma",
+    "db:studio": "pnpm --filter api db:studio",
+    "db:generate": "dotenv -e .env -- prisma generate --schema=prisma/schema.prisma",
+    "prepare": "husky install"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.40.1",
+    "@types/node": "^20.10.6",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
+    "concurrently": "^8.2.2",
+    "dotenv-cli": "^11.0.0",
+    "eslint": "^8.56.0",
+    "eslint-config-prettier": "^9.1.0",
+    "husky": "^8.0.3",
+    "lint-staged": "^15.2.0",
+    "prettier": "^3.1.1",
+    "prisma": "5.22.0",
+    "typescript": "^5.3.3",
+    "vitest": "^1.0.4"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "pnpm": ">=8.0.0"
+  },
+  "packageManager": "pnpm@8.15.0",
+  "dependencies": {
+    "@prisma/client": "5.22.0"
+  }
+}
