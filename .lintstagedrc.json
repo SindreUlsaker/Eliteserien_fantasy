@@ -1,13 +1,8 @@
 {
-  "*.{ts,tsx}": [
-    "eslint --fix",
-    "prettier --write"
-  ],
-  "*.{js,jsx}": [
-    "eslint --fix",
-    "prettier --write"
-  ],
-  "*.{json,yml,yaml,md}": [
-    "prettier --write"
-  ]
+  "apps/api/**/*.{ts,tsx}": ["node scripts/lint-api.js", "prettier --write"],
+  "apps/web/**/*.{ts,tsx}": ["eslint --config apps/web/.eslintrc.json --fix", "prettier --write"],
+  "packages/**/*.{ts,tsx}": ["eslint --fix", "prettier --write"],
+  "scripts/**/*.{ts,tsx}": ["eslint --fix", "prettier --write"],
+  "*.{js,jsx}": ["eslint --fix", "prettier --write"],
+  "*.{json,yml,yaml,md}": ["prettier --write"]
 }

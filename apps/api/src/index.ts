@@ -1,10 +1,10 @@
-import Fastify from 'fastify';
+import Fastify, { FastifyInstance } from 'fastify';
 import { PrismaClient } from '@prisma/client';
 import healthRoutes from './routes/health';
 
 const prisma = new PrismaClient();
 
-const server = Fastify({
+const server: FastifyInstance = Fastify({
   logger: {
     transport:
       process.env.NODE_ENV === 'development'
