@@ -9,10 +9,15 @@
     "start": "node dist/index.js",
     "lint": "eslint . --ext .ts",
     "typecheck": "tsc --noEmit",
-    "db:migrate": "prisma migrate dev --schema=../../prisma/schema.prisma",
-    "db:generate": "prisma generate --schema=../../prisma/schema.prisma",
-    "db:studio": "prisma studio --schema=../../prisma/schema.prisma",
-    "db:push": "prisma db push --schema=../../prisma/schema.prisma"
+    "db:migrate": "dotenv -e ../../.env -- prisma migrate dev --schema=../../prisma/schema.prisma",
+    "db:generate": "dotenv -e ../../.env -- prisma generate --schema=../../prisma/schema.prisma",
+    "db:studio": "dotenv -e ../../.env -- prisma studio --schema=../../prisma/schema.prisma",
+    "db:push": "dotenv -e ../../.env -- prisma db push --schema=../../prisma/schema.prisma",
+    "data:sync-players": "dotenv -e ../../.env -- tsx src/scripts/syncPlayers.ts",
+    "data:sync-teams": "dotenv -e ../../.env -- tsx src/scripts/syncTeams.ts",
+    "data:sync-gameweeks": "dotenv -e ../../.env -- tsx src/scripts/syncGameweeks.ts",
+    "db:seed:brackets": "dotenv -e ../../.env -- tsx src/scripts/seedBrackets.ts",
+    "db:reset": "dotenv -e ../../.env -- prisma migrate reset --schema=../../prisma/schema.prisma"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
@@ -24,6 +29,7 @@
     "@types/node": "^20.10.6",
     "@typescript-eslint/eslint-plugin": "^6.15.0",
     "@typescript-eslint/parser": "^6.15.0",
+    "dotenv-cli": "^7.4.4",
     "eslint": "^8.56.0",
     "prisma": "^5.22.0",
     "tsx": "^4.7.0",

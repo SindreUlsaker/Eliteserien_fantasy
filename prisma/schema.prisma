@@ -10,8 +10,110 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Healthcheck {
-  id        Int      @id @default(autoincrement())
+model Team {
+  /// ID fra fantasy-spillet (teams.id)
+  id Int @id
+
+  name      String
+  shortName String
+
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  players   Player[]
 }
 
+model Player {
+  /// ID fra fantasy-spillet (elements.id)
+  id Int @id
+
+  firstName  String
+  secondName String
+  webName    String
+
+  teamId     Int
+  team       Team @relation(fields: [teamId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  positionId Int
+  status     String
+  removed    Boolean @default(false)
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  effectiveOwnership EffectiveOwnership[]
+
+  @@index([teamId])
+  @@index([positionId])
+}
+
+model Gameweek {
+  /// ID fra fantasy-spillet (events.id)
+  id Int @id
+
+  name String
+
+  deadlineTime DateTime
+  releaseTime  DateTime?
+
+  finished    Boolean @default(false)
+  dataChecked Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  effectiveOwnership EffectiveOwnership[]
+
+  @@index([deadlineTime])
+  @@index([finished])
+}
+
+model Bracket {
+  id        Int      @id @default(autoincrement())
+
+  /// F.eks. "Top 1k", "Top 10k"
+  name      String
+
+  /// Inkluderende rank-grenser (du bestemmer semantikken, men vær konsekvent)
+  rankFrom  Int
+  rankTo    Int
+
+  /// Praktisk hvis du vil slå av/på brackets uten å slette
+  active    Boolean  @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  effectiveOwnership EffectiveOwnership[]
+
+  @@unique([rankFrom, rankTo])
+  @@index([active])
+}
+
+model EffectiveOwnership {
+  id           Int      @id @default(autoincrement())
+
+  gameweekId   Int
+  bracketId    Int
+  playerId     Int
+
+  /// Anbefaling: 0.0–1.0 (fraction). Du kan alltid formatere til percent i UI.
+  eo           Float
+
+  /// Hvor mange entries i denne bracketen som er med i samplet
+  sampleSize   Int
+
+  /// Valgfritt, men nyttig for debug / forklaring
+  ownedCount   Int?
+  captainCount Int?
+
+  computedAt   DateTime @default(now())
+
+  gameweek     Gameweek @relation(fields: [gameweekId], references: [id])
+  bracket      Bracket  @relation(fields: [bracketId], references: [id])
+  player       Player   @relation(fields: [playerId], references: [id])
+
+  @@unique([gameweekId, bracketId, playerId])
+  @@index([gameweekId, bracketId])
+  @@index([playerId])
+}
