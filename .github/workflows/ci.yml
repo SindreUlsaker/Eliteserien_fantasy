@@ -38,6 +38,8 @@ jobs:
           cache: 'pnpm'
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      - name: Generate Prisma Client
+        run: npx prisma generate --schema=prisma/schema.prisma
       - name: Run type check
         run: pnpm typecheck
 

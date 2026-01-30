@@ -4,7 +4,7 @@
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "dotenv -e ../../.env -- tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
     "lint": "eslint . --ext .ts",
@@ -18,9 +18,11 @@
     "data:sync-gameweeks": "dotenv -e ../../.env -- tsx src/scripts/syncGameweeks.ts",
     "db:seed:brackets": "dotenv -e ../../.env -- tsx src/scripts/seedBrackets.ts",
     "compute:eo": "dotenv -e ../../.env -- tsx src/scripts/computeEO.ts",
+    "sync:entries": "dotenv -e ../../.env -- tsx src/scripts/syncEntries.ts",
     "db:reset": "dotenv -e ../../.env -- prisma migrate reset --schema=../../prisma/schema.prisma"
   },
   "dependencies": {
+    "@fastify/cors": "8",
     "@prisma/client": "^5.22.0",
     "fastify": "^4.25.2",
     "pino": "^8.17.2",

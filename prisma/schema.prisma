@@ -117,3 +117,29 @@ model EffectiveOwnership {
   @@index([gameweekId, bracketId])
   @@index([playerId])
 }
+
+model Entry {
+  /// ID fra fantasy-spillet (entry id)
+  id Int @id
+
+  /// Lagnavn
+  entryName String
+
+  /// Fullt navn / manager name
+  playerName String
+
+  /// Siste kjente rank i overall (fra standings)
+  lastOverallRank  Int?
+  lastOverallTotal Int?
+
+  /// Hvilken league vi sist syncet fra (typisk 329)
+  sourceLeagueId Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([entryName])
+  @@index([playerName])
+  @@index([lastOverallRank])
+}
+

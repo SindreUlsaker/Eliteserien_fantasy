@@ -1,6 +1,8 @@
 import Fastify, { FastifyInstance } from 'fastify';
 import { PrismaClient } from '@prisma/client';
+import cors from '@fastify/cors';
 import healthRoutes from './routes/health';
+import entriesRoutes from './routes/entries';
 
 const prisma = new PrismaClient();
 
@@ -19,8 +21,14 @@ const server: FastifyInstance = Fastify({
   },
 });
 
+// CORS (tillat web-appen å kalle API-et lokalt)
+server.register(cors, {
+  origin: ['http://localhost:3000'],
+});
+
 // Register routes
 server.register(healthRoutes, { prisma });
+server.register(entriesRoutes, { prisma });
 
 const start = async () => {
   try {
