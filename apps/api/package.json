@@ -17,6 +17,7 @@
     "data:sync-teams": "dotenv -e ../../.env -- tsx src/scripts/syncTeams.ts",
     "data:sync-gameweeks": "dotenv -e ../../.env -- tsx src/scripts/syncGameweeks.ts",
     "db:seed:brackets": "dotenv -e ../../.env -- tsx src/scripts/seedBrackets.ts",
+    "compute:eo": "dotenv -e ../../.env -- tsx src/scripts/computeEO.ts",
     "db:reset": "dotenv -e ../../.env -- prisma migrate reset --schema=../../prisma/schema.prisma"
   },
   "dependencies": {
