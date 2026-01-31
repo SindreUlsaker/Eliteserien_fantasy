@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import cors from '@fastify/cors';
 import healthRoutes from './routes/health';
 import entriesRoutes from './routes/entries';
+import { entryHistoryRoutes } from './routes/entryHistory';
 
 const prisma = new PrismaClient();
 
@@ -29,6 +30,7 @@ server.register(cors, {
 // Register routes
 server.register(healthRoutes, { prisma });
 server.register(entriesRoutes, { prisma });
+server.register(entryHistoryRoutes, {});
 
 const start = async () => {
   try {

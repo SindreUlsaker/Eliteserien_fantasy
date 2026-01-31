@@ -1,6 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useState } from 'react';
+import { useUser } from './user-context';
+import { OverallRankCard } from './overall-rank-card';
 
 type EntryHit = {
   id: number;
@@ -13,34 +15,33 @@ type EntryHit = {
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:3001';
 
 export default function HomePage() {
+  const { selectedEntry, setSelectedEntry, isLoading } = useUser();
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState<EntryHit[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [selected, setSelected] = useState<EntryHit | null>(null);
+  if (isLoading) {
+    return (
+      <main
+        style={{
+          maxWidth: 900,
+          margin: '0 auto',
+          padding: 24,
+          fontFamily: 'system-ui, sans-serif',
+        }}
+      >
+        <h1 style={{ fontSize: 28, marginBottom: 12 }}>Eliteserien Fantasy</h1>
+        <section
+          style={{ border: '1px solid #ddd', borderRadius: 10, padding: 16, marginBottom: 20 }}
+        >
+          Laster bruker…
+        </section>
+      </main>
+    );
+  }
 
-  // last selected entryId from localStorage
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem('entryId');
-      if (!raw) return;
-      const id = Number(raw);
-      if (!Number.isFinite(id)) return;
-
-      // vi kan “hydrate” selected ved å søke på ID (endpoint returnerer [entry] eller [])
-      (async () => {
-        const res = await fetch(`${API_BASE}/entries/search?q=${encodeURIComponent(String(id))}`);
-        if (!res.ok) return;
-        const data = (await res.json()) as EntryHit[];
-        if (Array.isArray(data) && data.length > 0) setSelected(data[0]);
-      })().catch(() => {});
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  const canSearch = useMemo(() => query.trim().length > 0, [query]);
+  const canSearch = query.trim().length > 0;
 
   async function runSearch() {
     const q = query.trim();
@@ -65,25 +66,14 @@ export default function HomePage() {
   }
 
   function chooseEntry(entry: EntryHit) {
-    setSelected(entry);
+    setSelectedEntry(entry);
     setHits([]);
     setQuery('');
     setError(null);
-
-    try {
-      localStorage.setItem('entryId', String(entry.id));
-    } catch {
-      // ignore
-    }
   }
 
   function logout() {
-    setSelected(null);
-    try {
-      localStorage.removeItem('entryId');
-    } catch {
-      // ignore
-    }
+    setSelectedEntry(null);
   }
 
   return (
@@ -92,39 +82,44 @@ export default function HomePage() {
     >
       <h1 style={{ fontSize: 28, marginBottom: 12 }}>Eliteserien Fantasy</h1>
 
-      {selected ? (
-        <section
-          style={{ border: '1px solid #ddd', borderRadius: 10, padding: 16, marginBottom: 20 }}
-        >
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              gap: 12,
-              alignItems: 'center',
-            }}
+      {selectedEntry ? (
+        <>
+          <section
+            style={{ border: '1px solid #ddd', borderRadius: 10, padding: 16, marginBottom: 20 }}
           >
-            <div>
-              <div style={{ fontSize: 18, fontWeight: 600 }}>
-                {selected.entryName}{' '}
-                <span style={{ fontWeight: 400, color: '#666' }}>({selected.id})</span>
-              </div>
-              <div style={{ color: '#444' }}>{selected.playerName}</div>
-              <div style={{ color: '#666', marginTop: 6 }}>
-                {selected.lastOverallRank
-                  ? `Sist kjente overall-rank: ${selected.lastOverallRank}`
-                  : 'Ingen rank-data'}
-              </div>
-            </div>
-
-            <button
-              onClick={logout}
-              style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #ccc' }}
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                gap: 12,
+                alignItems: 'center',
+              }}
             >
-              Bytt lag
-            </button>
-          </div>
-        </section>
+              <div>
+                <div style={{ fontSize: 18, fontWeight: 600 }}>
+                  {selectedEntry.entryName}{' '}
+                  <span style={{ fontWeight: 400, color: '#666' }}>({selectedEntry.id})</span>
+                </div>
+                <div style={{ color: '#444' }}>{selectedEntry.playerName}</div>
+                <div style={{ color: '#666', marginTop: 6 }}>
+                  {selectedEntry.lastOverallRank
+                    ? `Sist kjente overall-rank: ${selectedEntry.lastOverallRank}`
+                    : 'Ingen rank-data'}
+                </div>
+              </div>
+
+              <button
+                onClick={logout}
+                style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #ccc' }}
+              >
+                Bytt lag
+              </button>
+            </div>
+          </section>
+
+          {/* Overall rank chart */}
+          <OverallRankCard entryId={selectedEntry.id} apiBase={API_BASE} />
+        </>
       ) : (
         <section
           style={{ border: '1px solid #ddd', borderRadius: 10, padding: 16, marginBottom: 20 }}
@@ -204,16 +199,6 @@ export default function HomePage() {
           )}
         </section>
       )}
-
-      <section style={{ color: '#666' }}>
-        <div style={{ marginBottom: 6 }}>
-          API-base: <code>{API_BASE}</code>
-        </div>
-        <div style={{ fontSize: 13 }}>
-          (Tips: sett <code>NEXT_PUBLIC_API_BASE</code> i <code>apps/web/.env.local</code> hvis du
-          vil endre dette.)
-        </div>
-      </section>
     </main>
   );
 }
