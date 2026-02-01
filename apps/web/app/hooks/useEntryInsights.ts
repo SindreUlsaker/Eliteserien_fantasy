@@ -48,7 +48,7 @@ export function useEntryInsights(entryId: number | null) {
         const json = (await res.json()) as EntryInsightsResponse;
         setData(json);
       } catch (e) {
-        if ((e as any)?.name === 'AbortError') return;
+        if (e instanceof Error && e.name === 'AbortError') return;
         setError(e instanceof Error ? e.message : 'Ukjent feil');
         setData(null);
       } finally {

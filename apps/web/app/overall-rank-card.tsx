@@ -318,9 +318,9 @@ export function OverallRankCard({ entryId, apiBase }: Props) {
                 stroke="currentColor"
                 strokeWidth={2.5}
                 // render prikk kun når chip brukt i denne GW
-                dot={(props: any) => {
+                dot={(props: { cx?: number; cy?: number; payload?: unknown }) => {
                   const { cx, cy, payload } = props;
-                  const gw = payload?.gw;
+                  const gw = (payload as { gw?: unknown })?.gw;
                   if (typeof gw !== 'number') return null;
 
                   const chipPlays = chipByGw.get(gw);

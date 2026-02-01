@@ -79,30 +79,35 @@ type HistoryRow = {
   bonus: number;
 };
 
+interface PlayerSummaryResponse {
+  history: HistoryRow[];
+}
+
 function isFiniteNumber(x: unknown): x is number {
   return typeof x === 'number' && Number.isFinite(x);
 }
 
 function isHistoryRow(r: unknown): r is HistoryRow {
+  if (!r || typeof r !== 'object') return false;
+  const obj = r as Record<string, unknown>;
   return (
-    r &&
-    isFiniteNumber(r.round) &&
-    isFiniteNumber(r.total_points) &&
-    isFiniteNumber(r.minutes) &&
-    isFiniteNumber(r.goals_scored) &&
-    isFiniteNumber(r.assists) &&
-    isFiniteNumber(r.clean_sheets) &&
-    isFiniteNumber(r.goals_conceded) &&
-    isFiniteNumber(r.yellow_cards) &&
-    isFiniteNumber(r.red_cards) &&
-    isFiniteNumber(r.saves) &&
-    isFiniteNumber(r.bonus)
+    isFiniteNumber(obj.round) &&
+    isFiniteNumber(obj.total_points) &&
+    isFiniteNumber(obj.minutes) &&
+    isFiniteNumber(obj.goals_scored) &&
+    isFiniteNumber(obj.assists) &&
+    isFiniteNumber(obj.clean_sheets) &&
+    isFiniteNumber(obj.goals_conceded) &&
+    isFiniteNumber(obj.yellow_cards) &&
+    isFiniteNumber(obj.red_cards) &&
+    isFiniteNumber(obj.saves) &&
+    isFiniteNumber(obj.bonus)
   );
 }
 
 async function syncOnePlayer(playerId: number, finishedSet: Set<number>) {
   const url = `${BASE_URL}/api/element-summary/${playerId}/`;
-  const summary = await fetchJsonWithRetry(url);
+  const summary = (await fetchJsonWithRetry(url)) as PlayerSummaryResponse;
 
   const history = Array.isArray(summary?.history) ? summary.history : [];
 
