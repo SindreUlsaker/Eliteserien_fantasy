@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useUser } from './user-context';
 import { OverallRankCard } from './overall-rank-card';
+import { useEntryInsights } from './hooks/useEntryInsights';
 
 type EntryHit = {
   id: number;
@@ -16,6 +17,11 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:3001';
 
 export default function HomePage() {
   const { selectedEntry, setSelectedEntry, isLoading } = useUser();
+  const {
+    data: insightsData,
+    loading: insightsLoading,
+    error: insightsError,
+  } = useEntryInsights(selectedEntry?.id ?? null);
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState<EntryHit[]>([]);
   const [loading, setLoading] = useState(false);
@@ -76,71 +82,97 @@ export default function HomePage() {
     setSelectedEntry(null);
   }
 
+  // FIL: apps/web/app/page.tsx (endring - kun UI/struktur, logikk beholdes)
   return (
-    <main
-      style={{ maxWidth: 900, margin: '0 auto', padding: 24, fontFamily: 'system-ui, sans-serif' }}
-    >
-      <h1 style={{ fontSize: 28, marginBottom: 12 }}>Eliteserien Fantasy</h1>
+    <main className="container">
+      <header className="page-header">
+        <h1 className="page-title">Eliteserien Fantasy</h1>
+      </header>
 
       {selectedEntry ? (
         <>
-          <section
-            style={{ border: '1px solid #ddd', borderRadius: 10, padding: 16, marginBottom: 20 }}
-          >
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                gap: 12,
-                alignItems: 'center',
-              }}
-            >
-              <div>
-                <div style={{ fontSize: 18, fontWeight: 600 }}>
-                  {selectedEntry.entryName}{' '}
-                  <span style={{ fontWeight: 400, color: '#666' }}>({selectedEntry.id})</span>
+          <section className="card card-pad">
+            <div className="entry-header">
+              <div className="entry-meta">
+                <div className="entry-title">
+                  {selectedEntry.entryName} <span className="muted">({selectedEntry.id})</span>
                 </div>
-                <div style={{ color: '#444' }}>{selectedEntry.playerName}</div>
-                <div style={{ color: '#666', marginTop: 6 }}>
+                <div className="entry-subtitle">{selectedEntry.playerName}</div>
+                <div className="entry-rank muted">
                   {selectedEntry.lastOverallRank
-                    ? `Sist kjente overall-rank: ${selectedEntry.lastOverallRank}`
+                    ? `Overall-rank: ${selectedEntry.lastOverallRank}`
                     : 'Ingen rank-data'}
                 </div>
               </div>
 
-              <button
-                onClick={logout}
-                style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #ccc' }}
-              >
+              <button onClick={logout} className="btn btn-ghost">
                 Bytt lag
               </button>
             </div>
           </section>
 
-          {/* Overall rank chart */}
-          <OverallRankCard entryId={selectedEntry.id} apiBase={API_BASE} />
+          {/* “Dashboard grid”: graf + stats */}
+          <section className="dashboard">
+            <div className="dashboard-main card">
+              <div className="card-pad">
+                <OverallRankCard entryId={selectedEntry.id} apiBase={API_BASE} />
+              </div>
+            </div>
+
+            <div className="dashboard-stats">
+              <div className="stat card">
+                <div className="card-pad">
+                  <div className="stat-label">Kaptein</div>
+                  <div className="stat-value">
+                    Returns (≥ 5 poeng):{' '}
+                    <span className="stat-strong">
+                      {insightsData?.insights?.captain
+                        ? `${insightsData.insights.captain.returns5Plus}/${insightsData.insights.captain.usedGameweeks}`
+                        : '—'}
+                    </span>
+                  </div>
+                  {insightsLoading && <div className="muted">Laster…</div>}
+                  {insightsError && <div className="error">Feil: {insightsError}</div>}
+                </div>
+              </div>
+
+              {/* Placeholder-kort: fyller du med 2–3 nøkkelstats senere */}
+              <div className="stat card">
+                <div className="card-pad">
+                  <div className="stat-label">Beste GW</div>
+                  <div className="stat-value">—</div>
+                </div>
+              </div>
+
+              <div className="stat card">
+                <div className="card-pad">
+                  <div className="stat-label">Verste GW</div>
+                  <div className="stat-value">—</div>
+                </div>
+              </div>
+
+              <div className="stat card">
+                <div className="card-pad">
+                  <div className="stat-label">Stabilitet</div>
+                  <div className="stat-value">—</div>
+                </div>
+              </div>
+            </div>
+          </section>
         </>
       ) : (
-        <section
-          style={{ border: '1px solid #ddd', borderRadius: 10, padding: 16, marginBottom: 20 }}
-        >
-          <h2 style={{ fontSize: 18, marginTop: 0 }}>Finn laget ditt</h2>
-          <p style={{ marginTop: 6, color: '#555' }}>
-            Søk med <b>ID</b>, <b>lagnavn</b> eller <b>fullt navn</b>. Trefflisten vises selv om det
-            bare er ett treff.
+        <section className="card card-pad">
+          <h2 className="section-title">Finn laget ditt</h2>
+          <p className="muted">
+            Søk med <b>ID</b>, <b>lagnavn</b> eller <b>fullt navn</b>.
           </p>
 
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div className="search-row">
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="F.eks. 20287, FC Urzaiz, Jørgen Rui"
-              style={{
-                flex: 1,
-                padding: '10px 12px',
-                borderRadius: 8,
-                border: '1px solid #ccc',
-              }}
+              className="input"
               onKeyDown={(e) => {
                 if (e.key === 'Enter') runSearch();
               }}
@@ -148,43 +180,25 @@ export default function HomePage() {
             <button
               onClick={runSearch}
               disabled={!canSearch || loading}
-              style={{
-                padding: '10px 12px',
-                borderRadius: 8,
-                border: '1px solid #ccc',
-                opacity: !canSearch || loading ? 0.6 : 1,
-              }}
+              className="btn btn-primary"
             >
               {loading ? 'Søker...' : 'Søk'}
             </button>
           </div>
 
-          {error && <div style={{ marginTop: 10, color: 'crimson' }}>Feil: {error}</div>}
+          {error && <div className="error">Feil: {error}</div>}
 
           {hits.length > 0 && (
-            <div style={{ marginTop: 14 }}>
-              <div style={{ color: '#666', marginBottom: 8 }}>Treff: {hits.length}</div>
-              <div style={{ border: '1px solid #eee', borderRadius: 10, overflow: 'hidden' }}>
+            <div className="hits">
+              <div className="muted">Treff: {hits.length}</div>
+              <div className="list card">
                 {hits.map((h) => (
-                  <button
-                    key={h.id}
-                    onClick={() => chooseEntry(h)}
-                    style={{
-                      display: 'block',
-                      width: '100%',
-                      textAlign: 'left',
-                      padding: 12,
-                      border: 'none',
-                      borderBottom: '1px solid #eee',
-                      background: 'white',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <div style={{ fontWeight: 600 }}>
-                      {h.entryName} <span style={{ fontWeight: 400, color: '#666' }}>({h.id})</span>
+                  <button key={h.id} onClick={() => chooseEntry(h)} className="list-row">
+                    <div className="list-title">
+                      {h.entryName} <span className="muted">({h.id})</span>
                     </div>
-                    <div style={{ color: '#444' }}>{h.playerName}</div>
-                    <div style={{ color: '#666', marginTop: 4 }}>
+                    <div className="list-subtitle">{h.playerName}</div>
+                    <div className="muted">
                       {h.lastOverallRank ? `Rank: ${h.lastOverallRank}` : 'Rank: —'}
                       {h.lastOverallTotal ? ` · Poeng: ${h.lastOverallTotal}` : ''}
                     </div>
@@ -192,10 +206,6 @@ export default function HomePage() {
                 ))}
               </div>
             </div>
-          )}
-
-          {hits.length === 0 && !loading && query.trim() && !error && (
-            <div style={{ marginTop: 12, color: '#666' }}>Ingen treff.</div>
           )}
         </section>
       )}

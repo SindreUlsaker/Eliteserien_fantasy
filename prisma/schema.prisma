@@ -42,6 +42,8 @@ model Player {
   updatedAt  DateTime @updatedAt
 
   effectiveOwnership EffectiveOwnership[]
+  entryPicks EntryPick[]
+  gameweekStats PlayerGameweekStats[]
 
   @@index([teamId])
   @@index([positionId])
@@ -63,6 +65,8 @@ model Gameweek {
   updatedAt DateTime @updatedAt
 
   effectiveOwnership EffectiveOwnership[]
+  entries EntryGameweek[]
+  playerStats PlayerGameweekStats[]
 
   @@index([deadlineTime])
   @@index([finished])
@@ -138,8 +142,116 @@ model Entry {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  gameweeks EntryGameweek[]
+  insights  EntryInsights?
+
   @@index([entryName])
   @@index([playerName])
   @@index([lastOverallRank])
 }
+
+model EntryGameweek {
+  id         Int      @id @default(autoincrement())
+
+  entryId    Int
+  gameweekId Int
+
+  fetchedAt  DateTime @default(now())
+
+  /// Liten subset fra entry_history (fra picks-endpointet)
+  points             Int?
+  totalPoints        Int?
+  overallRank        Int?
+  rank               Int?
+  bank               Int?
+  value              Int?
+  eventTransfers     Int?
+  eventTransfersCost Int?
+
+  entry     Entry    @relation(fields: [entryId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  gameweek  Gameweek @relation(fields: [gameweekId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  picks     EntryPick[]
+
+  @@unique([entryId, gameweekId])
+  @@index([gameweekId])
+  @@index([entryId])
+}
+
+model EntryPick {
+  id              Int  @id @default(autoincrement())
+
+  entryGameweekId Int
+
+  /// Player id fra fantasy (elements.id)
+  playerId        Int
+  position        Int
+  multiplier      Int
+  isCaptain       Boolean
+  isViceCaptain   Boolean
+  elementType     Int
+
+  entryGameweek   EntryGameweek @relation(fields: [entryGameweekId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  player          Player        @relation(fields: [playerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([entryGameweekId, position])
+  @@index([playerId])
+}
+
+model EntryInsights {
+  id        Int      @id @default(autoincrement())
+
+  entryId   Int      @unique
+
+  /// “Hvor langt” computed gjelder (typisk siste finished GW vi har komplett for)
+  computedThroughGameweekId Int
+
+  /// Bump når du endrer beregningslogikk
+  version   Int      @default(1)
+
+  /// Ferdig “produkt” til UI (captain/teamcomp/playstyle)
+  data      Json
+
+  computedAt DateTime @default(now())
+
+  entry     Entry     @relation(fields: [entryId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([computedThroughGameweekId])
+}
+
+model PlayerGameweekStats {
+  id         Int      @id @default(autoincrement())
+
+  playerId   Int
+  gameweekId Int
+
+  /// Aggregert per round (dobbeltrunde => sum)
+  fixtureCount Int @default(0)
+
+  totalPoints Int @default(0)
+  minutes     Int @default(0)
+
+  goalsScored Int @default(0)
+  assists     Int @default(0)
+  cleanSheets Int @default(0)
+  goalsConceded Int @default(0)
+
+  yellowCards Int @default(0)
+  redCards    Int @default(0)
+
+  saves       Int @default(0)
+  bonus       Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  player   Player   @relation(fields: [playerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  gameweek Gameweek @relation(fields: [gameweekId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([playerId, gameweekId])
+  @@index([gameweekId])
+  @@index([playerId])
+}
+
+
 

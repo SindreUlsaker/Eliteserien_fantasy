@@ -1,3 +1,4 @@
+// Login
 import { FastifyInstance, FastifyPluginOptions, FastifyReply, FastifyRequest } from 'fastify';
 import { PrismaClient } from '@prisma/client';
 
@@ -31,7 +32,7 @@ export default async function entriesRoutes(
       const limitParsed = Number(limitRaw);
       const limit = Number.isFinite(limitParsed) ? Math.min(Math.max(limitParsed, 1), 50) : 25;
 
-      // 1) Hvis input er et tall: prøv entryId først
+      // Hvis input er et tall, prøv entryId først
       if (/^\d+$/.test(q)) {
         const id = Number(q);
 
@@ -47,10 +48,9 @@ export default async function entriesRoutes(
         });
 
         if (entry) return reply.send([entry]);
-        // hvis ikke funnet, faller vi videre til navn-søk
       }
 
-      // 2) Eksakt match (case-insensitive) på entryName eller playerName
+      // Eksakt match (case-insensitive) på entryName eller playerName
       const results = await prisma.entry.findMany({
         where: {
           OR: [

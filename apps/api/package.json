@@ -19,6 +19,9 @@
     "db:seed:brackets": "dotenv -e ../../.env -- tsx src/scripts/seedBrackets.ts",
     "compute:eo": "dotenv -e ../../.env -- tsx src/scripts/computeEO.ts",
     "sync:entries": "dotenv -e ../../.env -- tsx src/scripts/syncEntries.ts",
+    "data:sync-entry-picks": "dotenv -e ../../.env -- tsx src/scripts/syncEntryPicks.ts",
+    "data:compute-entry-insights": "dotenv -e ../../.env -- tsx src/scripts/computeEntryInsights.ts",
+    "data:sync-player-gw-stats": "dotenv -e ../../.env -- tsx src/scripts/syncPlayerGameweekStats.ts",
     "db:reset": "dotenv -e ../../.env -- prisma migrate reset --schema=../../prisma/schema.prisma"
   },
   "dependencies": {
