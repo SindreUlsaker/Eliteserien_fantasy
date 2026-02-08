@@ -67,6 +67,7 @@ model Gameweek {
   effectiveOwnership EffectiveOwnership[]
   entries EntryGameweek[]
   playerStats PlayerGameweekStats[]
+  bracketStats BracketGameweekStats[]
 
   @@index([deadlineTime])
   @@index([finished])
@@ -89,6 +90,7 @@ model Bracket {
   updatedAt DateTime @updatedAt
 
   effectiveOwnership EffectiveOwnership[]
+  gameweekStats BracketGameweekStats[]
 
   @@unique([rankFrom, rankTo])
   @@index([active])
@@ -121,6 +123,34 @@ model EffectiveOwnership {
   @@index([gameweekId, bracketId])
   @@index([playerId])
 }
+
+
+model BracketGameweekStats {
+  id         Int      @id @default(autoincrement())
+
+  gameweekId Int
+  bracketId  Int
+
+  /// Øk når du endrer beregningslogikk / definisjon av feltene i `data`
+  version    Int      @default(1)
+
+  /// Hvor mange entries som inngikk i beregningen (typisk samme som EO sampleSize)
+  sampleSize Int?
+
+  /// Ferdig aggregerte baseline-tall for UI (EO/captain/teamEO/hits/chips/points osv)
+  data       Json
+
+  computedAt DateTime @default(now())
+
+  gameweek   Gameweek @relation(fields: [gameweekId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  bracket    Bracket  @relation(fields: [bracketId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([gameweekId, bracketId, version])
+  @@index([gameweekId])
+  @@index([bracketId])
+}
+
+
 
 model Entry {
   /// ID fra fantasy-spillet (entry id)

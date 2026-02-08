@@ -26,6 +26,13 @@ type PicksResponse = {
   }>;
 };
 
+type EntryHistoryResponse = {
+  current: Array<{
+    event: number;
+    event_transfers_cost?: number;
+  }>;
+};
+
 function getRequiredNumberEnv(key: string): number {
   const raw = process.env[key];
   const n = Number(raw);
@@ -180,6 +187,10 @@ type Counts = {
   sampleSize: number;
   ownedCount: Map<number, number>;
   captainCount: Map<number, number>;
+
+  // Hits-metrikker
+  transferCostSum: number; // sum(event_transfers_cost)
+  hitEntryCount: number; // count(event_transfers_cost > 0)
 };
 
 type EntryInfo = { entryId: number; rank: number };
@@ -234,10 +245,32 @@ async function main() {
       sampleSize: 0,
       ownedCount: new Map(),
       captainCount: new Map(),
+      transferCostSum: 0,
+      hitEntryCount: 0,
     });
   }
 
   const failures: Array<{ entryId: number; rank: number; error: string }> = [];
+
+  async function fetchEventTransfersCost(
+    entryId: number,
+    perRequestDelay: number
+  ): Promise<number> {
+    if (perRequestDelay > 0) await sleep(perRequestDelay);
+
+    const url = `${BASE_URL}/api/entry/${entryId}/history/`;
+    const data = await fetchJsonWithRetry<EntryHistoryResponse>(url, {
+      headers: {
+        'User-Agent': 'eliteserien-api/computeEO',
+        Accept: 'application/json',
+      },
+    });
+
+    const row = Array.isArray(data.current) ? data.current.find((r) => r.event === gw) : undefined;
+    const v = row?.event_transfers_cost;
+
+    return typeof v === 'number' && Number.isFinite(v) ? v : 0;
+  }
 
   async function processEntry(entry: EntryInfo, perRequestDelay: number) {
     const memberBrackets = bracketsForRank(entry.rank, brackets);
@@ -245,20 +278,29 @@ async function main() {
 
     if (perRequestDelay > 0) await sleep(perRequestDelay);
 
-    const url = `${BASE_URL}/api/entry/${entry.entryId}/event/${gw}/picks/`;
-    const data = await fetchJsonWithRetry<PicksResponse>(url, {
+    const picksUrl = `${BASE_URL}/api/entry/${entry.entryId}/event/${gw}/picks/`;
+    const picksData = await fetchJsonWithRetry<PicksResponse>(picksUrl, {
       headers: {
         'User-Agent': 'eliteserien-api/computeEO',
         Accept: 'application/json',
       },
     });
 
-    const picks = Array.isArray(data.picks) ? data.picks : [];
+    const picks = Array.isArray(picksData.picks) ? picksData.picks : [];
 
+    const transferCost = await fetchEventTransfersCost(entry.entryId, perRequestDelay);
+
+    // Oppdater sampleSize + hits per bracket
     for (const b of memberBrackets) {
-      byBracket.get(b.id)!.sampleSize += 1;
+      const agg = byBracket.get(b.id)!;
+
+      agg.sampleSize += 1;
+
+      agg.transferCostSum += transferCost;
+      if (transferCost > 0) agg.hitEntryCount += 1;
     }
 
+    // Oppdater owned/captain counts per bracket
     for (const p of picks) {
       const playerId = p.element;
       if (typeof playerId !== 'number') continue;
@@ -358,6 +400,77 @@ async function main() {
     const all = Array.from(playerIds);
 
     console.log(`Bracket ${b.name}: sampleSize=${sampleSize}, players=${all.length}`);
+
+    // --- Baseline stats for spillestil (lagres i BracketGameweekStats) ---
+    let avgCaptainEO: number | null = null;
+    let avgTeamEO: number | null = null;
+
+    // avgCaptainEO = Σ (p^2), p = captainCount/sampleSize
+    {
+      let sumCapSq = 0;
+      let hasCap = false;
+
+      for (const cnt of agg.captainCount.values()) {
+        const p = cnt / sampleSize;
+        sumCapSq += p * p;
+        hasCap = true;
+      }
+
+      avgCaptainEO = hasCap ? sumCapSq : null;
+    }
+
+    // avgTeamEO = Σ (eo^2), eo = (ownedCount + captainCount) / sampleSize
+    {
+      let sumEoSq = 0;
+
+      for (const playerId of all) {
+        const ownedCount = agg.ownedCount.get(playerId) ?? 0;
+        const captainCount = agg.captainCount.get(playerId) ?? 0;
+        const eo = (ownedCount + captainCount) / sampleSize;
+        sumEoSq += eo * eo;
+      }
+
+      avgTeamEO = sumEoSq;
+    }
+
+    const avgTransferCost = agg.transferCostSum / sampleSize;
+    const hitRate = agg.hitEntryCount / sampleSize;
+
+    await prisma.bracketGameweekStats.upsert({
+      where: {
+        gameweekId_bracketId_version: {
+          gameweekId: gw,
+          bracketId: b.id,
+          version: 1,
+        },
+      },
+      create: {
+        gameweekId: gw,
+        bracketId: b.id,
+        version: 1,
+        sampleSize,
+        data: {
+          risk: {
+            avgCaptainEO,
+            avgTeamEO,
+            avgTransferCost,
+            hitRate,
+          },
+        },
+      },
+      update: {
+        sampleSize,
+        data: {
+          risk: {
+            avgCaptainEO,
+            avgTeamEO,
+            avgTransferCost,
+            hitRate,
+          },
+        },
+        computedAt: new Date(),
+      },
+    });
 
     for (let i = 0; i < all.length; i += upsertChunkSize) {
       const chunk = all.slice(i, i + upsertChunkSize);

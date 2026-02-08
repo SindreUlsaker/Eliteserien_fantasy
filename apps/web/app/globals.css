@@ -26,6 +26,8 @@ body {
   --bg: #f5f7fb;
   --surface: #ffffff;
   --surface-strong: #f0f2f7;
+  /* Fully opaque surface color to use for popovers / overlays */
+  --surface-opaque: #ffffff;
   --border: rgba(0, 0, 0, 0.08);
   --text: #0f172a;
   --muted: #475569;
@@ -55,6 +57,7 @@ body {
   --input-placeholder: rgba(15, 23, 42, 0.45);
 
   --hover-bg: rgba(15, 23, 42, 0.04);
+  --surface-opaque: #ffffff;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -63,6 +66,8 @@ body {
     --bg: #0f1117;
     --surface: rgba(255, 255, 255, 0.06);
     --surface-strong: rgba(255, 255, 255, 0.08);
+    /* Fully opaque surface for popovers in dark mode */
+    --surface-opaque: #0f131a;
     --border: rgba(255, 255, 255, 0.10);
     --text: rgba(255, 255, 255, 0.92);
     --muted: rgba(255, 255, 255, 0.65);
@@ -88,6 +93,7 @@ body {
     --input-placeholder: rgba(255, 255, 255, 0.45);
 
     --hover-bg: rgba(255, 255, 255, 0.05);
+    --surface-opaque: #0f131a;
   }
 }
 
@@ -98,6 +104,7 @@ body[data-theme='light'] {
   --bg: #f5f7fb;
   --surface: #ffffff;
   --surface-strong: #f0f2f7;
+  --surface-opaque: #ffffff;
   --border: rgba(0, 0, 0, 0.08);
   --text: #0f172a;
   --muted: #475569;
@@ -122,6 +129,7 @@ body[data-theme='light'] {
   --input-placeholder: rgba(15, 23, 42, 0.45);
 
   --hover-bg: rgba(15, 23, 42, 0.04);
+  --surface-opaque: #ffffff;
 }
 
 body[data-theme='dark'] {
@@ -130,6 +138,7 @@ body[data-theme='dark'] {
   --bg: #0f1117;
   --surface: rgba(255, 255, 255, 0.06);
   --surface-strong: rgba(255, 255, 255, 0.08);
+  --surface-opaque: #0f131a;
   --border: rgba(255, 255, 255, 0.10);
   --text: rgba(255, 255, 255, 0.92);
   --muted: rgba(255, 255, 255, 0.65);
@@ -154,6 +163,7 @@ body[data-theme='dark'] {
   --input-placeholder: rgba(255, 255, 255, 0.45);
 
   --hover-bg: rgba(255, 255, 255, 0.05);
+  --surface-opaque: #0f131a;
 }
 
 /* App base */
@@ -373,23 +383,6 @@ a {
 }
 
 .theme-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-}
-
-.theme-toggle-icon {
-  font-size: 16px;
-  line-height: 1;
-}
-
-.theme-toggle-label {
-  font-size: 13px;
-  font-weight: 650;
-}
-
-.theme-toggle {
   width: 40px;
   height: 40px;
   padding: 0;
@@ -549,5 +542,245 @@ a {
   }
 }
 
+/* Compare layout */
+.compare-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
 
+/* Mobil: stack */
+@media (max-width: 900px) {
+  .compare-grid {
+    grid-template-columns: 1fr;
+  }
+}
 
+.compare-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.compare-empty-title {
+  font-weight: 650;
+  margin-bottom: 6px;
+}
+
+.compare-section-head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.compare-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.compare-subtitle {
+  font-size: 13px;
+}
+
+/* Help tooltip */
+.compare-help {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.compare-help-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.compare-help-btn:hover {
+  background: var(--hover-bg);
+}
+
+.compare-help-popover {
+  position: absolute;
+  top: 34px;
+  right: 0;
+  width: min(460px, 86vw);
+  border: 1px solid var(--border);
+  /* Use an opaque surface color so the popover text isn't laid over page content */
+  background: var(--surface-opaque);
+  border-radius: 12px;
+  padding: 12px;
+  box-shadow: var(--shadow);
+  z-index: 50;
+}
+
+@media (prefers-color-scheme: dark) {
+  .compare-help-popover {
+    /* Ensure dark-mode popover uses the opaque surface variable (no translucency) */
+    background: var(--surface-opaque);
+  }
+}
+
+.compare-help-text {
+  font-size: 13px;
+  color: var(--text);
+  white-space: pre-wrap;
+  line-height: 1.45;
+}
+
+/* Bullets - used for compare tone variations */
+.compare-bullets {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.compare-bullet {
+  line-height: 1.35;
+}
+
+/* -----------------------------------
+   NYTT: Spillestil-oppsummering
+----------------------------------- */
+.compare-style-summary {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  background: var(--surface);
+  margin-bottom: 14px;
+}
+
+.compare-style-title {
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  margin-bottom: 6px;
+}
+
+.compare-style-text {
+  color: var(--text);
+  line-height: 1.45;
+  font-size: 14px;
+}
+
+/* Tone-variasjon på oppsummeringskortet */
+.compare-style-summary.compare-bullet-pos {
+  border-color: color-mix(in srgb, #3bb273 35%, var(--border));
+}
+
+.compare-style-summary.compare-bullet-neg {
+  border-color: color-mix(in srgb, #ff6b6b 35%, var(--border));
+}
+
+.compare-style-summary.compare-bullet-mid,
+.compare-style-summary.compare-bullet-muted {
+  border-color: var(--border);
+}
+
+.compare-style-summary.compare-bullet-muted {
+  opacity: 0.95;
+}
+
+/* -----------------------------------
+   NYTT: Skala/graf (3 rader)
+----------------------------------- */
+.compare-scales {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.compare-scale {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.compare-scale-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.compare-scale-title {
+  font-weight: 750;
+}
+
+.compare-scale-sub {
+  font-size: 12px;
+}
+
+/* Track */
+.compare-scale-track {
+  position: relative;
+  height: 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+/* Midtlinje (snittet) */
+.compare-scale-mid {
+  position: absolute;
+  left: 50%;
+  top: -1px;
+  bottom: -1px;
+  width: 2px;
+  background: color-mix(in srgb, var(--text) 18%, transparent);
+}
+
+/* Pin (posisjon settes via --pos) */
+.compare-scale-pin {
+  position: absolute;
+  left: var(--pos);
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  border: 2px solid var(--text);
+  background: var(--surface);
+}
+
+/* Labels */
+.compare-scale-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+}
+
+/* Subtile farger (bare litt hint i tracken) */
+.compare-scale-track-captain {
+  background: linear-gradient(
+    to right,
+    color-mix(in srgb, #3bb273 14%, var(--surface)),
+    var(--surface),
+    color-mix(in srgb, #ffb000 14%, var(--surface))
+  );
+}
+
+.compare-scale-track-team {
+  background: linear-gradient(
+    to right,
+    color-mix(in srgb, #3bb273 10%, var(--surface)),
+    var(--surface),
+    color-mix(in srgb, #5b8def 12%, var(--surface))
+  );
+}
+
+.compare-scale-track-hits {
+  background: linear-gradient(
+    to right,
+    color-mix(in srgb, #3bb273 12%, var(--surface)),
+    var(--surface),
+    color-mix(in srgb, #ff6b6b 12%, var(--surface))
+  );
+}
