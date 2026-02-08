@@ -86,7 +86,7 @@ export default function HomePage() {
   return (
     <main className="container">
       <header className="page-header">
-        <h1 className="page-title">Eliteserien Fantasy</h1>
+        <h1 className="page-title">Oversikt</h1>
       </header>
 
       {selectedEntry ? (

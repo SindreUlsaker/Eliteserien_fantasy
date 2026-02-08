@@ -45,41 +45,54 @@ async function fetchJson(url: string): Promise<unknown> {
 }
 
 function parsePicksResponse(data: unknown): PicksResponse {
-  if (
-    !data ||
-    typeof data !== 'object' ||
-    !('picks' in data) ||
-    !Array.isArray((data as any).picks)
-  )
-    throw new Error('Invalid picks response');
+  if (!data || typeof data !== 'object') throw new Error('Invalid picks response');
 
-  const picks = (data as any).picks.map((p: unknown) => {
+  const asRecord = data as Record<string, unknown>;
+  const rawPicks = asRecord.picks;
+  if (!Array.isArray(rawPicks)) throw new Error('Invalid picks response: missing picks array');
+
+  function parsePick(p: unknown): Pick {
     if (typeof p !== 'object' || p === null) throw new Error('Invalid pick');
-    const pick = p as any;
-    return {
-      element: pick.element,
-      position: pick.position,
-      multiplier: pick.multiplier,
-      is_captain: pick.is_captain,
-      is_vice_captain: pick.is_vice_captain,
-      element_type: pick.element_type,
-    };
-  });
+    const obj = p as Record<string, unknown>;
 
+    const element = toInt(obj.element);
+    const position = toInt(obj.position);
+    const multiplier = toInt(obj.multiplier);
+    const is_captain = typeof obj.is_captain === 'boolean' ? obj.is_captain : false;
+    const is_vice_captain = typeof obj.is_vice_captain === 'boolean' ? obj.is_vice_captain : false;
+    const element_type = toInt(obj.element_type);
+
+    if (element === null || position === null || multiplier === null || element_type === null) {
+      throw new Error('Invalid pick values');
+    }
+
+    return {
+      element,
+      position,
+      multiplier,
+      is_captain,
+      is_vice_captain,
+      element_type,
+    };
+  }
+
+  const picks = rawPicks.map(parsePick);
   if (picks.length !== 15) throw new Error(`Expected 15 picks, got ${picks.length}`);
 
-  const eh = (data as any).entry_history ?? {};
+  const ehRaw = asRecord.entry_history;
+  const eh = typeof ehRaw === 'object' && ehRaw !== null ? (ehRaw as Record<string, unknown>) : {};
+
   return {
     picks,
     entry_history: {
-      points: eh.points ?? null,
-      total_points: eh.total_points ?? null,
-      overall_rank: eh.overall_rank ?? null,
-      rank: eh.rank ?? null,
-      bank: eh.bank ?? null,
-      value: eh.value ?? null,
-      event_transfers: eh.event_transfers ?? null,
-      event_transfers_cost: eh.event_transfers_cost ?? null,
+      points: toInt(eh.points ?? null),
+      total_points: toInt(eh.total_points ?? null),
+      overall_rank: toInt(eh.overall_rank ?? null),
+      rank: toInt(eh.rank ?? null),
+      bank: toInt(eh.bank ?? null),
+      value: toInt(eh.value ?? null),
+      event_transfers: toInt(eh.event_transfers ?? null),
+      event_transfers_cost: toInt(eh.event_transfers_cost ?? null),
     },
   };
 }
