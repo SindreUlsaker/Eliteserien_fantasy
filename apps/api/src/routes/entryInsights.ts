@@ -185,6 +185,58 @@ async function syncMissingEntryPicks(prisma: PrismaClient, entryId: number) {
   return { synced: missing.length, totalFinished: gwIds.length };
 }
 
+async function getCurrentGameweekId(prisma: PrismaClient): Promise<number> {
+  // "aktiv" GW = første som ikke er finished (hvis finnes)
+  const next = await prisma.gameweek.findFirst({
+    where: { finished: false },
+    orderBy: { id: 'asc' },
+    select: { id: true },
+  });
+  if (next?.id) return next.id;
+
+  // fallback: siste GW i db
+  const last = await prisma.gameweek.findFirst({
+    orderBy: { id: 'desc' },
+    select: { id: true },
+  });
+  if (!last?.id) throw new Error('No gameweeks in DB');
+  return last.id;
+}
+
+async function getCurrentOverallRank(
+  prisma: PrismaClient,
+  entryId: number
+): Promise<number | null> {
+  const lastFinished = await prisma.entryGameweek.findFirst({
+    where: { entryId, gameweek: { finished: true } },
+    orderBy: { gameweekId: 'desc' },
+    select: { overallRank: true },
+  });
+  return lastFinished?.overallRank ?? null;
+}
+
+async function getBracketIdForRank(
+  prisma: PrismaClient,
+  rank: number | null
+): Promise<number | null> {
+  if (rank == null) return null;
+
+  const brackets = await prisma.bracket.findMany({
+    where: { active: true },
+    orderBy: { rankTo: 'asc' },
+    select: { id: true, rankTo: true },
+  });
+
+  if (brackets.length === 0) return null;
+
+  // Finn første bracket der rank <= rankTo
+  const hit = brackets.find((b) => rank <= b.rankTo);
+  if (hit) return hit.id;
+
+  // Hvis rank er utenfor alle brackets: bruk "største" (typisk topp 10000)
+  return brackets[brackets.length - 1].id;
+}
+
 export default async function entryInsightsRoutes(
   fastify: FastifyInstance,
   options: EntryInsightsPluginOptions
@@ -204,10 +256,37 @@ export default async function entryInsightsRoutes(
 
       const insights = await computeEntryInsights(prisma, entryId);
 
+      // current bracket = basert på siste ferdige GW overall rank
+      const currentGwId = await getCurrentGameweekId(prisma);
+      const currentRank = await getCurrentOverallRank(prisma, entryId);
+      const currentBracketId = await getBracketIdForRank(prisma, currentRank);
+
+      // BracketGameweekStats (hvis finnes)
+      // Vi bruker findFirst for å unngå å anta navn på unique constraint i Prisma
+      const bracketGameweekStats = currentBracketId
+        ? await prisma.bracketGameweekStats.findFirst({
+            where: { bracketId: currentBracketId, gameweekId: currentGwId },
+            orderBy: { version: 'desc' },
+            select: {
+              bracketId: true,
+              gameweekId: true,
+              data: true,
+              sampleSize: true,
+              version: true,
+            },
+          })
+        : null;
+
       return reply.send({
         entryId,
         sync,
         insights,
+        current: {
+          gameweekId: currentGwId,
+          overallRank: currentRank,
+          bracketId: currentBracketId,
+        },
+        bracketGameweekStats,
       });
     }
   );

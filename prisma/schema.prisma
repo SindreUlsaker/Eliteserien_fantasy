@@ -68,6 +68,8 @@ model Gameweek {
   entries EntryGameweek[]
   playerStats PlayerGameweekStats[]
   bracketStats BracketGameweekStats[]
+  chipUsages ChipUsage[]
+
 
   @@index([deadlineTime])
   @@index([finished])
@@ -91,6 +93,8 @@ model Bracket {
 
   effectiveOwnership EffectiveOwnership[]
   gameweekStats BracketGameweekStats[]
+  chipUsages ChipUsage[]
+
 
   @@unique([rankFrom, rankTo])
   @@index([active])
@@ -173,6 +177,7 @@ model Entry {
   updatedAt DateTime @updatedAt
 
   gameweeks EntryGameweek[]
+  chipUsages ChipUsage[]
   insights  EntryInsights?
 
   @@index([entryName])
@@ -283,5 +288,38 @@ model PlayerGameweekStats {
   @@index([playerId])
 }
 
+model ChipUsage {
+  id         Int      @id @default(autoincrement())
+
+  /// ID fra fantasy-spillet (entry id)
+  entryId    Int
+  entry      Entry    @relation(fields: [entryId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  /// ID fra fantasy-spillet (events.id)
+  gameweekId Int
+  gameweek   Gameweek @relation(fields: [gameweekId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  /// Bracketen entryen tilhørte når chip ble registrert (fra EO-scriptet)
+  bracketId  Int
+  bracket    Bracket  @relation(fields: [bracketId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  /// chips[].name (f.eks. "2capt", "bboost")
+  chipName   String
+
+  /// Chip-poeng fylles av points-scriptet etter at runden er ferdig.
+  /// NULL = ikke beregnet enda (0 er en gyldig score).
+  points     Int?
+
+  /// chips[].time (kan være nyttig for debug)
+  usedAt     DateTime?
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([entryId, gameweekId, chipName])
+  @@index([gameweekId, bracketId])
+  @@index([entryId])
+  @@index([chipName])
+}
 
 

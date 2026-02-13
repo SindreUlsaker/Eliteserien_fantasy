@@ -60,23 +60,21 @@ export function TopNav() {
         </div>
       </div>
 
-      {/* Mobile dropdown */}
-      {open && (
-        <nav className="nav-mobile card" aria-label="Mobile navigation">
-          {NAV.map((item) => {
-            const active = pathname === item.href;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`nav-mobile-link ${active ? 'is-active' : ''}`}
-              >
-                {item.label}
-              </Link>
-            );
-          })}
-        </nav>
-      )}
+      {/* Mobile dropdown (CSS styrer open/lukket) */}
+      <nav className={`nav-mobile card ${open ? 'open' : ''}`} aria-label="Mobile navigation">
+        {NAV.map((item) => {
+          const active = pathname === item.href;
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={`nav-mobile-link ${active ? 'is-active' : ''}`}
+            >
+              {item.label}
+            </Link>
+          );
+        })}
+      </nav>
     </header>
   );
 }

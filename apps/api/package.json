@@ -23,6 +23,7 @@
     "data:compute-entry-insights": "dotenv -e ../../.env -- tsx src/scripts/computeEntryInsights.ts",
     "data:sync-player-gw-stats": "dotenv -e ../../.env -- tsx src/scripts/syncPlayerGameweekStats.ts",
     "data:compute-bracket-stats": "dotenv -e ../../.env -- tsx src/scripts/computeBracketGameweekStats.ts",
+    "compute:round-stats": "dotenv -e ../../.env -- tsx src/scripts/computeRoundStats.ts",
     "db:reset": "dotenv -e ../../.env -- prisma migrate reset --schema=../../prisma/schema.prisma"
   },
   "dependencies": {

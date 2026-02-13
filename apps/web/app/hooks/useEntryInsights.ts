@@ -4,19 +4,92 @@ import { useEffect, useState } from 'react';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:3001';
 
-type CaptainInsights = {
+type PosBuckets = { gkp: number; def: number; mid: number; fwd: number };
+
+export type CaptainInsights = {
   threshold: number;
   returns5Plus: number;
   usedGameweeks: number;
   missingPointsGameweeks: number;
   missingCaptainGameweeks: number;
   totalFinishedGameweeksWithPicks: number;
+
+  baseline?: {
+    expectedReturns5Plus: number | null;
+    avgSuccessRate5Plus: number | null;
+    usedGameweeks: number;
+    missingGameweeks: number;
+  };
+
+  diff?: {
+    returns5Plus: number | null;
+  };
+
+  topCaptains?: Array<{
+    playerId: number;
+    playerName: string | null;
+    gameweekId: number;
+    points: number;
+  }>;
 };
 
-type EntryInsightsResponse = {
+export type EntryInsightsResponse = {
   entryId: number;
   sync: { synced: number; totalFinished: number };
-  insights: { captain: CaptainInsights };
+
+  current?: {
+    gameweekId: number;
+    overallRank: number | null;
+    bracketId: number | null;
+  };
+
+  bracketGameweekStats?: {
+    bracketId: number;
+    gameweekId: number;
+    version: number;
+    sampleSize: number | null;
+    data: any;
+  } | null;
+
+  insights: {
+    captain: CaptainInsights;
+
+    risk?: {
+      summary?: {
+        captainShareDiff: number | null;
+        teamEODiff: number | null;
+        transferCostDiff: number | null;
+        usedGameweeks: number;
+      };
+    };
+
+    points?: {
+      summary?: {
+        // captain points
+        avgUserCaptainPoints?: number | null;
+        avgBaselineCaptainPoints?: number | null;
+        captainPointsDiff?: number | null;
+
+        // points by position (XI)
+        avgUserByPosition?: PosBuckets | null;
+        avgBaselineByPosition?: PosBuckets | null;
+        byPositionDiff?: PosBuckets | null;
+
+        // XI composition (avg count per position)
+        avgUserXI?: PosBuckets | null;
+        avgBaselineXI?: PosBuckets | null;
+        xiDiff?: PosBuckets | null;
+
+        usedGameweeks?: number;
+      };
+    };
+
+    chips?: {
+      used?: Record<string, Array<{ gameweekId: number; points?: number | null }>>;
+      notUsed?: string[];
+      pointsByChip?: Record<string, Array<{ gameweekId: number; points: number | null }>>;
+    };
+  };
 };
 
 export function useEntryInsights(entryId: number | null) {

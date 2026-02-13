@@ -18,18 +18,26 @@ type StandingsResponse = {
 
 type PicksResponse = {
   picks: Array<{
-    element: number; // playerId (fotballspiller)
+    element: number;
     position: number;
     multiplier: number;
     is_captain: boolean;
     is_vice_captain: boolean;
   }>;
+  entry_history?: {
+    overall_rank?: number | null;
+  };
 };
 
 type EntryHistoryResponse = {
   current: Array<{
     event: number;
     event_transfers_cost?: number;
+  }>;
+  chips?: Array<{
+    name?: string;
+    time?: string;
+    event?: number;
   }>;
 };
 
@@ -40,6 +48,11 @@ function getRequiredNumberEnv(key: string): number {
     throw new Error(`Missing/invalid env ${key}. Got: ${raw}`);
   }
   return n;
+}
+
+function roundTo(n: number, digits = 4) {
+  const p = 10 ** digits;
+  return Math.round(n * p) / p;
 }
 
 function getOptionalNumberEnv(key: string, fallback: number): number {
@@ -176,11 +189,23 @@ async function fetchTopEntries(
   return deduped;
 }
 
+/**
+ * Samme mønster som i GAMMEL computeEO:
+ * - Brackets kan overlappe (f.eks. Top 100 = 1-100, Top 500 = 1-500 osv)
+ * - Entryen teller i ALLE bracketene den matcher.
+ */
 function bracketsForRank(
-  rank: number,
+  rank: number | null | undefined,
   brackets: Array<{ id: number; rankFrom: number; rankTo: number; name: string }>
 ) {
+  if (rank == null) return [];
   return brackets.filter((b) => rank >= b.rankFrom && rank <= b.rankTo);
+}
+
+function normalizeChipName(name: string, chipGw: number) {
+  // Split wildcard: <= 15 => wildcard1, >= 16 => wildcard2
+  if (name === 'wildcard') return chipGw <= 15 ? 'wildcard1' : 'wildcard2';
+  return name;
 }
 
 type Counts = {
@@ -191,6 +216,10 @@ type Counts = {
   // Hits-metrikker
   transferCostSum: number; // sum(event_transfers_cost)
   hitEntryCount: number; // count(event_transfers_cost > 0)
+
+  // Chips-metrikker (telles fra entry history)
+  chipTotalUsed: Map<string, number>; // totalt brukt i sesongen innen samplet
+  chipUsedThisGw: Map<string, number>; // brukt denne runden innen samplet
 };
 
 type EntryInfo = { entryId: number; rank: number };
@@ -226,7 +255,7 @@ async function main() {
   const brackets = await prisma.bracket.findMany({
     where: { active: true },
     select: { id: true, name: true, rankFrom: true, rankTo: true },
-    orderBy: [{ rankTo: 'asc' }],
+    orderBy: [{ rankTo: 'asc' }], // viktig: gjør at "beste bracket" blir først
   });
 
   if (brackets.length === 0) {
@@ -247,15 +276,20 @@ async function main() {
       captainCount: new Map(),
       transferCostSum: 0,
       hitEntryCount: 0,
+      chipTotalUsed: new Map(),
+      chipUsedThisGw: new Map(),
     });
   }
 
   const failures: Array<{ entryId: number; rank: number; error: string }> = [];
 
-  async function fetchEventTransfersCost(
+  async function fetchEntryHistory(
     entryId: number,
     perRequestDelay: number
-  ): Promise<number> {
+  ): Promise<{
+    transferCost: number;
+    chips: Array<{ name: string; event: number; time: string | null }>;
+  }> {
     if (perRequestDelay > 0) await sleep(perRequestDelay);
 
     const url = `${BASE_URL}/api/entry/${entryId}/history/`;
@@ -268,14 +302,23 @@ async function main() {
 
     const row = Array.isArray(data.current) ? data.current.find((r) => r.event === gw) : undefined;
     const v = row?.event_transfers_cost;
+    const transferCost = typeof v === 'number' && Number.isFinite(v) ? v : 0;
 
-    return typeof v === 'number' && Number.isFinite(v) ? v : 0;
+    const chipsRaw = Array.isArray(data.chips) ? data.chips : [];
+    const chips = chipsRaw
+      .map((c) => {
+        const name = typeof c?.name === 'string' ? c.name : null;
+        const event = typeof c?.event === 'number' && Number.isFinite(c.event) ? c.event : null;
+        const time = typeof c?.time === 'string' ? c.time : null;
+        if (!name || event == null) return null;
+        return { name, event, time };
+      })
+      .filter((x): x is { name: string; event: number; time: string | null } => x != null);
+
+    return { transferCost, chips };
   }
 
   async function processEntry(entry: EntryInfo, perRequestDelay: number) {
-    const memberBrackets = bracketsForRank(entry.rank, brackets);
-    if (memberBrackets.length === 0) return;
-
     if (perRequestDelay > 0) await sleep(perRequestDelay);
 
     const picksUrl = `${BASE_URL}/api/entry/${entry.entryId}/event/${gw}/picks/`;
@@ -288,12 +331,25 @@ async function main() {
 
     const picks = Array.isArray(picksData.picks) ? picksData.picks : [];
 
-    const transferCost = await fetchEventTransfersCost(entry.entryId, perRequestDelay);
+    // Bracket basert på overall_rank i DENNE GW (samme som du ønsket for sammenligningssiden)
+    const overallRankThisGw =
+      typeof picksData.entry_history?.overall_rank === 'number' &&
+      Number.isFinite(picksData.entry_history.overall_rank)
+        ? picksData.entry_history.overall_rank
+        : null;
+
+    // ✅ IKKE-disjunkt: entryen teller i ALLE bracketene den matcher (samme mønster som gammel fil)
+    const memberBrackets = bracketsForRank(overallRankThisGw, brackets);
+    if (memberBrackets.length === 0) return;
+
+    // For ChipUsage (én rad per entry/gw/chip): velg "primær-bracket" = beste (lavest rankTo)
+    const primaryBracketId = memberBrackets[0]!.id;
+
+    const { transferCost, chips } = await fetchEntryHistory(entry.entryId, perRequestDelay);
 
     // Oppdater sampleSize + hits per bracket
     for (const b of memberBrackets) {
       const agg = byBracket.get(b.id)!;
-
       agg.sampleSize += 1;
 
       agg.transferCostSum += transferCost;
@@ -306,12 +362,65 @@ async function main() {
       if (typeof playerId !== 'number') continue;
 
       for (const b of memberBrackets) {
-        const owned = byBracket.get(b.id)!.ownedCount;
-        owned.set(playerId, (owned.get(playerId) ?? 0) + 1);
+        const agg = byBracket.get(b.id)!;
+
+        agg.ownedCount.set(playerId, (agg.ownedCount.get(playerId) ?? 0) + 1);
 
         if (p.is_captain === true) {
-          const caps = byBracket.get(b.id)!.captainCount;
-          caps.set(playerId, (caps.get(playerId) ?? 0) + 1);
+          agg.captainCount.set(playerId, (agg.captainCount.get(playerId) ?? 0) + 1);
+        }
+      }
+    }
+
+    // Chips: tell totals + denne runden per bracket (cumulative),
+    // og upsert ChipUsage (kun én gang per chip brukt i denne GW)
+    if (chips.length > 0) {
+      for (const ch of chips) {
+        const chipGw = ch.event;
+        const chipKey = normalizeChipName(ch.name, chipGw);
+        // totals: entryen teller i alle memberBrackets
+        for (const b of memberBrackets) {
+          const agg = byBracket.get(b.id)!;
+          agg.chipTotalUsed.set(chipKey, (agg.chipTotalUsed.get(chipKey) ?? 0) + 1);
+
+          if (ch.event === gw) {
+            agg.chipUsedThisGw.set(chipKey, (agg.chipUsedThisGw.get(chipKey) ?? 0) + 1);
+          }
+        }
+
+        if (typeof chipGw === 'number' && Number.isFinite(chipGw)) {
+          const usedAt = ch.time ? new Date(ch.time) : null;
+
+          try {
+            const exists = await prisma.chipUsage.findUnique({
+              where: {
+                entryId_gameweekId_chipName: {
+                  entryId: entry.entryId,
+                  gameweekId: chipGw,
+                  chipName: chipKey,
+                },
+              },
+              select: { entryId: true },
+            });
+
+            if (!exists) {
+              await prisma.chipUsage.create({
+                data: {
+                  entryId: entry.entryId,
+                  gameweekId: chipGw,
+                  bracketId: primaryBracketId, // (som før) bracket basert på rank i denne GW
+                  chipName: chipKey,
+                  points: null, // NULL = ikke beregnet enda
+                  usedAt: usedAt ?? undefined,
+                },
+              });
+            }
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            console.warn(
+              `WARN: failed inserting ChipUsage entry=${entry.entryId} gw=${chipGw} chip=${chipKey}: ${msg}`
+            );
+          }
         }
       }
     }
@@ -436,6 +545,45 @@ async function main() {
     const avgTransferCost = agg.transferCostSum / sampleSize;
     const hitRate = agg.hitEntryCount / sampleSize;
 
+    const existing = await prisma.bracketGameweekStats.findUnique({
+      where: {
+        gameweekId_bracketId_version: {
+          gameweekId: gw,
+          bracketId: b.id,
+          version: 1,
+        },
+      },
+      select: { data: true },
+    });
+
+    const prevData = (existing?.data ?? {}) as Record<string, unknown>;
+
+    const risk = {
+      avgCaptainEO: avgCaptainEO == null ? null : roundTo(avgCaptainEO, 4),
+      avgTeamEO: avgTeamEO == null ? null : roundTo(avgTeamEO, 4),
+      avgTransferCost: roundTo(avgTransferCost, 4),
+      hitRate: roundTo(hitRate, 4),
+    };
+
+    // Chips: totals (season) og denne runden, per chip
+    const totalUsed: Record<string, number> = {};
+    for (const [chipName, cnt] of agg.chipTotalUsed.entries()) totalUsed[chipName] = cnt;
+
+    const usedThisGw: Record<string, number> = {};
+    const usedThisGwRate: Record<string, number> = {};
+    for (const [chipName, cnt] of agg.chipUsedThisGw.entries()) {
+      usedThisGw[chipName] = cnt;
+      usedThisGwRate[chipName] = roundTo(cnt / sampleSize, 4);
+    }
+
+    const chips = {
+      totalUsed,
+      usedThisGw,
+      usedThisGwRate,
+    };
+
+    const nextData = { ...prevData, risk, chips };
+
     await prisma.bracketGameweekStats.upsert({
       where: {
         gameweekId_bracketId_version: {
@@ -449,25 +597,11 @@ async function main() {
         bracketId: b.id,
         version: 1,
         sampleSize,
-        data: {
-          risk: {
-            avgCaptainEO,
-            avgTeamEO,
-            avgTransferCost,
-            hitRate,
-          },
-        },
+        data: nextData,
       },
       update: {
         sampleSize,
-        data: {
-          risk: {
-            avgCaptainEO,
-            avgTeamEO,
-            avgTransferCost,
-            hitRate,
-          },
-        },
+        data: nextData,
         computedAt: new Date(),
       },
     });

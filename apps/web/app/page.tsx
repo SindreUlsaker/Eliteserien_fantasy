@@ -82,7 +82,6 @@ export default function HomePage() {
     setSelectedEntry(null);
   }
 
-  // FIL: apps/web/app/page.tsx (endring - kun UI/struktur, logikk beholdes)
   return (
     <main className="container">
       <header className="page-header">
