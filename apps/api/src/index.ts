@@ -5,6 +5,7 @@ import healthRoutes from './routes/health';
 import entriesRoutes from './routes/entries';
 import { entryHistoryRoutes } from './routes/entryHistory';
 import entryInsightsRoutes from './routes/entryInsights';
+import entryTeamRoutes from './routes/entryTeam';
 
 const prisma = new PrismaClient();
 
@@ -33,6 +34,7 @@ server.register(healthRoutes, { prisma });
 server.register(entriesRoutes, { prisma });
 server.register(entryHistoryRoutes, {});
 server.register(entryInsightsRoutes, { prisma });
+server.register(entryTeamRoutes, { prisma });
 
 const start = async () => {
   try {

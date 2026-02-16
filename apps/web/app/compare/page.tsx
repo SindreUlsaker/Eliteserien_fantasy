@@ -481,9 +481,9 @@ export default function ComparePage() {
   const CHIP_DEFS = useMemo(
     () =>
       [
-        { key: 'rich', label: 'Rich' },
-        { key: '2capt', label: '2x Kaptein' },
-        { key: 'frush', label: 'Free Rush' },
+        { key: 'rich', label: 'Rik onkel' },
+        { key: '2capt', label: 'To kapteiner' },
+        { key: 'frush', label: 'Spissrush' },
         { key: 'wildcard1', label: 'Wildcard 1' },
         { key: 'wildcard2', label: 'Wildcard 2' },
       ] as const,

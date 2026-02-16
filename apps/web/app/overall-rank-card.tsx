@@ -22,6 +22,7 @@ type ChipPlay = {
 type Props = {
   entryId: number;
   apiBase: string;
+  onSelectGw?: (gw: number) => void;
 };
 
 type ApiResponse = {
@@ -56,7 +57,6 @@ function chipLabel(name: string) {
 }
 
 function chipColor(name: string) {
-  // Bevisst "punchy" – ser bra ut på mørk glass-card
   switch (name) {
     case '2capt':
       return '#B57BFF'; // lilla
@@ -71,7 +71,7 @@ function chipColor(name: string) {
   }
 }
 
-export function OverallRankCard({ entryId, apiBase }: Props) {
+export function OverallRankCard({ entryId, apiBase, onSelectGw }: Props) {
   const [points, setPoints] = useState<RankPoint[]>([]);
   const [chips, setChips] = useState<ChipPlay[]>([]);
   const [loading, setLoading] = useState(false);
@@ -149,7 +149,7 @@ export function OverallRankCard({ entryId, apiBase }: Props) {
   }, [points]);
 
   const chipLegend = useMemo(() => {
-    // Vis bare chips som faktisk finnes for denne entryen (ryddig)
+    // Vis bare chips som faktisk finnes for denne entryen
     const names = Array.from(new Set(chips.map((c) => c.name)));
     return names;
   }, [chips]);
@@ -268,86 +268,100 @@ export function OverallRankCard({ entryId, apiBase }: Props) {
         </div>
       )}
 
-      <div style={{ height: 260, marginTop: 14 }}>
-        {loading && <div style={{ opacity: 0.8 }}>Laster historikk…</div>}
-        {error && <div style={{ color: 'salmon' }}>Feil: {error}</div>}
+      <div style={{ display: 'flex', flexDirection: 'column', marginTop: 14 }}>
+        <div style={{ height: 260 }}>
+          {loading && <div style={{ opacity: 0.8 }}>Laster historikk…</div>}
+          {error && <div style={{ color: 'salmon' }}>Feil: {error}</div>}
 
-        {!loading && !error && points.length > 0 && (
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={points} margin={{ top: 10, right: 12, bottom: 6, left: 4 }}>
-              <CartesianGrid strokeDasharray="3 3" opacity={0.25} />
-              <XAxis
-                dataKey="gw"
-                tickLine={false}
-                axisLine={false}
-                tick={{ opacity: 0.8, fontSize: 12 }}
-              />
-              <YAxis
-                dataKey="overallRank"
-                reversed
-                scale="log"
-                domain={['dataMin', 'dataMax']}
-                tickLine={false}
-                axisLine={false}
-                tick={{ opacity: 0.8, fontSize: 12 }}
-                width={62}
-              />
-
-              <Tooltip
-                formatter={(value) => formatInt(Number(value))}
-                labelFormatter={(label) => {
-                  const gw = Number(label);
-                  const chipNames = chipByGw.get(gw)?.map((c) => chipLabel(c.name)) ?? [];
-                  return chipNames.length > 0
-                    ? `GW ${gw} · Chip: ${chipNames.join(', ')}`
-                    : `GW ${gw}`;
+          {!loading && !error && points.length > 0 && (
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart
+                data={points}
+                margin={{ top: 10, right: 12, bottom: 6, left: 4 }}
+                style={{ cursor: onSelectGw ? 'pointer' : 'default' }}
+                onClick={(state: any) => {
+                  const gw = state?.activeLabel;
+                  if (typeof gw === 'number') onSelectGw?.(gw);
                 }}
-                contentStyle={{
-                  background: 'rgba(10,10,10,0.92)',
-                  border: '1px solid rgba(255,255,255,0.12)',
-                  borderRadius: 12,
-                  boxShadow: '0 10px 30px rgba(0,0,0,0.25)',
-                }}
-                itemStyle={{ color: 'white' }}
-                labelStyle={{ color: 'rgba(255,255,255,0.75)' }}
-              />
+              >
+                <CartesianGrid strokeDasharray="3 3" opacity={0.25} />
+                <XAxis
+                  dataKey="gw"
+                  tickLine={false}
+                  axisLine={false}
+                  tick={{ opacity: 0.8, fontSize: 12 }}
+                />
+                <YAxis
+                  dataKey="overallRank"
+                  reversed
+                  scale="log"
+                  domain={['dataMin', 'dataMax']}
+                  tickLine={false}
+                  axisLine={false}
+                  tick={{ opacity: 0.8, fontSize: 12 }}
+                  width={62}
+                />
 
-              <Line
-                type="monotone"
-                dataKey="overallRank"
-                stroke="currentColor"
-                strokeWidth={2.5}
-                // render prikk kun når chip brukt i denne GW
-                dot={(props: { cx?: number; cy?: number; payload?: unknown }) => {
-                  const { cx, cy, payload } = props;
-                  const gw = (payload as { gw?: unknown })?.gw;
-                  if (typeof gw !== 'number') return null;
+                <Tooltip
+                  formatter={(value) => formatInt(Number(value))}
+                  labelFormatter={(label) => {
+                    const gw = Number(label);
+                    const chipNames = chipByGw.get(gw)?.map((c) => chipLabel(c.name)) ?? [];
+                    return chipNames.length > 0
+                      ? `GW ${gw} · Chip: ${chipNames.join(', ')}`
+                      : `GW ${gw}`;
+                  }}
+                  contentStyle={{
+                    background: 'rgba(10,10,10,0.92)',
+                    border: '1px solid rgba(255,255,255,0.12)',
+                    borderRadius: 12,
+                    boxShadow: '0 10px 30px rgba(0,0,0,0.25)',
+                  }}
+                  itemStyle={{ color: 'white' }}
+                  labelStyle={{ color: 'rgba(255,255,255,0.75)' }}
+                />
 
-                  const chipPlays = chipByGw.get(gw);
-                  if (!chipPlays || chipPlays.length === 0) return null;
+                <Line
+                  type="monotone"
+                  dataKey="overallRank"
+                  stroke="currentColor"
+                  strokeWidth={2.5}
+                  dot={(props: { cx?: number; cy?: number; payload?: unknown }) => {
+                    const { cx, cy, payload } = props;
+                    const gw = (payload as { gw?: unknown })?.gw;
+                    if (typeof gw !== 'number') return null;
 
-                  const primary = chipPlays[0];
-                  const fill = chipColor(primary.name);
+                    const chipPlays = chipByGw.get(gw);
+                    const fill =
+                      chipPlays && chipPlays.length > 0 ? chipColor(chipPlays[0].name) : 'white';
 
-                  return (
-                    <circle
-                      cx={cx}
-                      cy={cy}
-                      r={4.5}
-                      fill={fill}
-                      stroke="rgba(0,0,0,0.55)"
-                      strokeWidth={1.5}
-                    />
-                  );
-                }}
-                activeDot={{ r: 5 }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        )}
+                    return (
+                      <circle
+                        cx={cx}
+                        cy={cy}
+                        r={4.5}
+                        fill={fill}
+                        stroke="rgba(0,0,0,0.55)"
+                        strokeWidth={1.5}
+                        style={{ cursor: onSelectGw ? 'pointer' : 'default' }}
+                      />
+                    );
+                  }}
+                  activeDot={{ r: 5 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
 
-        {!loading && !error && points.length === 0 && (
-          <div style={{ opacity: 0.8 }}>Ingen historikk tilgjengelig.</div>
+          {!loading && !error && points.length === 0 && (
+            <div style={{ opacity: 0.8 }}>Ingen historikk tilgjengelig.</div>
+          )}
+        </div>
+
+        {onSelectGw && (
+          <div style={{ fontSize: 12, opacity: 0.7, marginTop: 8 }}>
+            Tips: klikk på en prikk for å se laget den runden.
+          </div>
         )}
       </div>
     </section>
