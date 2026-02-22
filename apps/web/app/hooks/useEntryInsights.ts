@@ -6,79 +6,79 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:3001';
 
 type PosBuckets = { gkp: number; def: number; mid: number; fwd: number };
 
-export type CaptainInsights = {
-  threshold: number;
-  returns5Plus: number;
-  usedGameweeks: number;
-  missingPointsGameweeks: number;
-  missingCaptainGameweeks: number;
-  totalFinishedGameweeksWithPicks: number;
-
-  baseline?: {
-    expectedReturns5Plus: number | null;
-    avgSuccessRate5Plus: number | null;
-    usedGameweeks: number;
-    missingGameweeks: number;
-  };
-
-  diff?: {
-    returns5Plus: number | null;
-  };
-
-  topCaptains?: Array<{
-    playerId: number;
-    playerName: string | null;
-    gameweekId: number;
-    points: number;
-  }>;
-};
-
 export type EntryInsightsResponse = {
-  entryId: number;
-  sync: { synced: number; totalFinished: number };
-
-  current?: {
-    gameweekId: number;
-    overallRank: number | null;
-    bracketId: number | null;
-  };
-
-  bracketGameweekStats?: {
-    bracketId: number;
-    gameweekId: number;
-    version: number;
-    sampleSize: number | null;
-    data: any;
-  } | null;
-
   insights: {
-    captain: CaptainInsights;
+    captain?: {
+      threshold?: number;
+      returns5Plus?: number;
+      usedGameweeks?: number;
+      missingPointsGameweeks?: number;
+      missingCaptainGameweeks?: number;
+      totalFinishedGameweeksWithPicks?: number;
 
-    risk?: {
-      summary?: {
-        captainShareDiff: number | null;
-        teamEODiff: number | null;
-        transferCostDiff: number | null;
-        usedGameweeks: number;
+      baseline?: {
+        expectedReturns5Plus?: number | null;
+        avgSuccessRate5Plus?: number | null;
+        usedGameweeks?: number;
+        missingGameweeks?: number;
       };
+
+      diff?: {
+        returns5Plus?: number | null;
+      };
+
+      topCaptains?: Array<{
+        rank: number;
+        playerId: number;
+        playerName: string;
+        gw: number;
+        points: number;
+      }>;
     };
 
     points?: {
       summary?: {
-        // captain points
         avgUserCaptainPoints?: number | null;
         avgBaselineCaptainPoints?: number | null;
         captainPointsDiff?: number | null;
 
-        // points by position (XI)
         avgUserByPosition?: PosBuckets | null;
         avgBaselineByPosition?: PosBuckets | null;
         byPositionDiff?: PosBuckets | null;
 
-        // XI composition (avg count per position)
+        // Formation composition (avg players in XI)
         avgUserXI?: PosBuckets | null;
         avgBaselineXI?: PosBuckets | null;
         xiDiff?: PosBuckets | null;
+
+        usedGameweeks?: number;
+      };
+    };
+
+    risk?: {
+      summary?: {
+        // Captain EO (effective ownership)
+        avgUserCaptainEO?: number | null;
+        avgBaselineCaptainEO?: number | null;
+        captainEODiff?: number | null;
+
+        // Captain share (expert consensus %)
+        avgUserCaptainShare?: number | null;
+        avgBaselineCaptainShare?: number | null;
+        captainShareDiff?: number | null;
+
+        // Team EO
+        avgTeamEO?: number | null;
+        avgBaselineTeamEO?: number | null;
+        teamEODiff?: number | null;
+
+        // Transfer cost + hits
+        avgUserTransferCost?: number | null;
+        avgBaselineTransferCost?: number | null;
+        transferCostDiff?: number | null;
+
+        userHitRate?: number | null;
+        baselineHitRate?: number | null;
 
         usedGameweeks?: number;
       };
@@ -88,7 +88,36 @@ export type EntryInsightsResponse = {
       used?: Record<string, Array<{ gameweekId: number; points?: number | null }>>;
       notUsed?: string[];
       pointsByChip?: Record<string, Array<{ gameweekId: number; points: number | null }>>;
+
+      baseline?: {
+        totalUsed: Record<string, number>;
+        usedThisGw: Record<string, number>;
+        usedThisGwRate: Record<string, number>;
+        sampleSize: number | null;
+        points?: {
+          avg2captPoints: number | null;
+          avgFrushPoints: number | null;
+        } | null;
+      } | null;
     };
+  };
+
+  meta?: {
+    computedThroughGw?: number;
+    overallRankNow?: number | null;
+    bracket?: { id: number; name: string; rankFrom: number; rankTo: number } | null;
+
+    entrySeasonTotals?: {
+      lastUpdatedGw: number;
+      gwCount: number;
+    };
+
+    bracketStats?: {
+      bracketId: number;
+      computedThroughGameweekId: number;
+      version: number;
+      sampleSize: number | null;
+    } | null;
   };
 };
 

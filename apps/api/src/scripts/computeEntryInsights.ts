@@ -1,4 +1,4 @@
-// Skjer egentlig automatisk ved innlogging via routes/entryInsights.ts, men kan kjøres manuelt også
+// apps/api/src/scripts/computeEntryInsights.ts
 import { PrismaClient } from '@prisma/client';
 import { computeEntryInsights } from '../services/computeEntryInsights';
 
@@ -13,11 +13,17 @@ function toInt(v: string | undefined): number | null {
 async function main() {
   const entryId = toInt(process.env.ENTRY_ID) ?? toInt(process.argv[2]);
   if (!entryId) {
-    throw new Error('Missing ENTRY_ID. Use: pnpm --filter api data:compute-entry-insights -- 4563');
+    throw new Error(
+      'Missing ENTRY_ID. Use: pnpm --filter api data:compute-entry-insights -- 12345'
+    );
   }
 
   const data = await computeEntryInsights(prisma, entryId);
-  console.log(`Computed insights for entry ${entryId}:`, data);
+
+  console.log(
+    `Computed insights for entry ${entryId}. computedThroughGw=${data?.meta?.computedThroughGw ?? '??'}`
+  );
+  console.log(JSON.stringify(data, null, 2));
 }
 
 main()

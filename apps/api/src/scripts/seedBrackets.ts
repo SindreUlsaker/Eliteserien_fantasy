@@ -1,46 +1,44 @@
+// apps/api/src/scripts/seedBrackets.ts
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
-type BracketSeed = {
-  name: string;
-  rankFrom: number;
-  rankTo: number;
-};
-
-const BRACKETS: BracketSeed[] = [
-  { name: 'Top 100', rankFrom: 1, rankTo: 100 },
-  { name: 'Top 500', rankFrom: 1, rankTo: 500 },
-  { name: 'Top 2k', rankFrom: 1, rankTo: 2000 },
-  { name: 'Top 5k', rankFrom: 1, rankTo: 5000 },
-  { name: 'Top 10k', rankFrom: 1, rankTo: 10000 },
+// Disjunkte bracket-intervaler (inkluderende grenser)
+const BRACKETS: Array<{ name: string; rankFrom: number; rankTo: number }> = [
+  { name: '1-100', rankFrom: 1, rankTo: 100 },
+  { name: '101-500', rankFrom: 101, rankTo: 500 },
+  { name: '501-1000', rankFrom: 501, rankTo: 1000 },
+  { name: '1001-2000', rankFrom: 1001, rankTo: 2000 },
+  { name: '2001-3000', rankFrom: 2001, rankTo: 3000 },
+  { name: '3001-5000', rankFrom: 3001, rankTo: 5000 },
+  { name: '5001-7000', rankFrom: 5001, rankTo: 7000 },
+  { name: '7001-10000', rankFrom: 7001, rankTo: 10000 },
 ];
 
 async function main() {
-  let upserted = 0;
+  // Siden appen ikke er live: enklest å wipe og re-seed rent.
+  // Dette gjør scriptet idempotent: samme resultat uansett hvor mange ganger du kjører.
+  await prisma.bracket.deleteMany();
 
-  for (const b of BRACKETS) {
-    await prisma.bracket.upsert({
-      where: {
-        // Prisma lager default navn på composite unique: rankFrom_rankTo
-        rankFrom_rankTo: { rankFrom: b.rankFrom, rankTo: b.rankTo },
-      },
-      update: { name: b.name, active: true },
-      create: { name: b.name, rankFrom: b.rankFrom, rankTo: b.rankTo, active: true },
-    });
+  await prisma.bracket.createMany({
+    data: BRACKETS.map((b) => ({
+      name: b.name,
+      rankFrom: b.rankFrom,
+      rankTo: b.rankTo,
+      active: true,
+    })),
+  });
 
-    upserted += 1;
-    console.log(`Upserted ${upserted}/${BRACKETS.length}: ${b.name} (${b.rankFrom}-${b.rankTo})`);
-  }
-
-  console.log('Done seeding brackets.');
+  const count = await prisma.bracket.count();
+  console.log(`Seeded brackets: ${count}`);
 }
 
 main()
-  .catch((e) => {
-    console.error('seedBrackets failed:', e);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
+  .then(async () => {
     await prisma.$disconnect();
+  })
+  .catch(async (err) => {
+    console.error(err);
+    await prisma.$disconnect();
+    process.exit(1);
   });

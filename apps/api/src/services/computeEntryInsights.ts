@@ -1,38 +1,6 @@
+// apps/api/src/services/computeEntryInsights.ts
 import { PrismaClient } from '@prisma/client';
 
-function key(playerId: number, gameweekId: number) {
-  return `${playerId}:${gameweekId}`;
-}
-
-function avg(nums: number[]) {
-  if (nums.length === 0) return null;
-  return nums.reduce((a, b) => a + b, 0) / nums.length;
-}
-
-function findBracketIdForRank(
-  rank: number | null | undefined,
-  brackets: Array<{ id: number; rankFrom: number; rankTo: number; active: boolean }>
-): number | null {
-  if (rank == null) return null;
-  const b = brackets.find((x) => x.active && rank >= x.rankFrom && rank <= x.rankTo);
-  return b?.id ?? null;
-}
-
-function posKey(positionId: number): 'gkp' | 'def' | 'mid' | 'fwd' | 'unknown' {
-  if (positionId === 1) return 'gkp';
-  if (positionId === 2) return 'def';
-  if (positionId === 3) return 'mid';
-  if (positionId === 4) return 'fwd';
-  return 'unknown';
-}
-
-type PosBuckets = { gkp: number; def: number; mid: number; fwd: number };
-
-function emptyBuckets(): PosBuckets {
-  return { gkp: 0, def: 0, mid: 0, fwd: 0 };
-}
-
-// --- Chips helpers ---
 type NormalizedChipKey = 'wildcard1' | 'wildcard2' | '2capt' | 'frush' | 'rich' | string;
 
 function normalizeChipName(chipName: string, gameweekId: number): NormalizedChipKey {
@@ -40,846 +8,794 @@ function normalizeChipName(chipName: string, gameweekId: number): NormalizedChip
   return chipName as NormalizedChipKey;
 }
 
+function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+function jitter(ms: number) {
+  const delta = ms * 0.25;
+  return ms + (Math.random() * 2 - 1) * delta;
+}
+
+async function fetchJsonWithRetry<T>(url: string): Promise<T> {
+  const maxAttempts = 5;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'eliteserien-api/computeEntryInsights',
+        Accept: 'application/json',
+      },
+    });
+
+    if (res.ok) return (await res.json()) as T;
+
+    const retryable = res.status === 429 || (res.status >= 500 && res.status <= 599);
+    const body = await res.text().catch(() => '');
+
+    if (!retryable || attempt === maxAttempts) {
+      throw new Error(
+        `HTTP ${res.status} ${res.statusText} for ${url}. Body: ${body.slice(0, 250)}`
+      );
+    }
+
+    const baseDelay = 700 * Math.pow(2, attempt - 1);
+    const delayMs = Math.round(jitter(Math.min(baseDelay, 15_000)));
+    await sleep(delayMs);
+  }
+
+  throw new Error(`Failed after retries: ${url}`);
+}
+
+function elementTypeKey(elementType: number): 'gkp' | 'def' | 'mid' | 'fwd' | 'unk' {
+  if (elementType === 1) return 'gkp';
+  if (elementType === 2) return 'def';
+  if (elementType === 3) return 'mid';
+  if (elementType === 4) return 'fwd';
+  return 'unk';
+}
+
+function chipNameForPoints(normalized: string): '2capt' | 'frush' | null {
+  const k = normalized.toLowerCase();
+  if (
+    k === '2capt' ||
+    k === '3xc' ||
+    k === 'triple_captain' ||
+    k === 'triple captain' ||
+    k.includes('kaptein')
+  )
+    return '2capt';
+  if (k === 'frush' || k === 'freehit' || k === 'spissrush') return 'frush';
+  return null;
+}
+
+type CaptainPerf = { gw: number; playerId: number; points: number };
+
+function findBracketForRank(
+  rank: number | null | undefined,
+  brackets: Array<{ id: number; name: string; rankFrom: number; rankTo: number; active: boolean }>
+) {
+  if (rank == null) return null;
+  const exactMatch = brackets.find((x) => x.active && rank >= x.rankFrom && rank <= x.rankTo);
+  if (exactMatch) return exactMatch;
+  // For users ranked beyond the highest bracket, use the highest available bracket
+  const activeBrackets = brackets.filter((x) => x.active);
+  return activeBrackets.length > 0 ? activeBrackets[activeBrackets.length - 1] : null;
+}
+
+type PicksResponse = {
+  picks: Array<{
+    element: number;
+    position: number;
+    multiplier: number;
+    is_captain: boolean;
+    is_vice_captain?: boolean;
+    element_type: number;
+  }>;
+};
+
+type EntryHistoryResponse = {
+  current: Array<{
+    event: number;
+    overall_rank?: number | null;
+    event_transfers_cost?: number | null;
+  }>;
+  chips?: Array<{
+    name?: string;
+    event?: number;
+    time?: string;
+  }>;
+};
+
+async function ensureEntrySeasonTotalsUpToDate(
+  prisma: PrismaClient,
+  entryId: number,
+  computedThroughGw: number
+) {
+  const BASE_URL = process.env.ESF_BASE_URL ?? 'https://en.fantasy.eliteserien.no';
+
+  const finishedGws = await prisma.gameweek.findMany({
+    where: { finished: true, id: { lte: computedThroughGw } },
+    orderBy: { id: 'asc' },
+    select: { id: true },
+  });
+  const finishedGwIds = finishedGws.map((g) => g.id);
+  if (finishedGwIds.length === 0) return;
+
+  const existing = await prisma.entrySeasonTotals.findUnique({
+    where: { entryId },
+    select: { lastUpdatedGw: true },
+  });
+
+  const lastUpdatedGw = existing?.lastUpdatedGw ?? 0;
+  if (lastUpdatedGw >= computedThroughGw) return;
+
+  // Minimal incremental update (samme som før): henter picks for manglende gws og oppdaterer totals.
+  // (Du kommer uansett til å kjøre batch-scriptet, så dette brukes mest for “single entry”).
+  const missingGwIds = finishedGwIds.filter((gw) => gw > lastUpdatedGw);
+  if (missingGwIds.length === 0) return;
+
+  // Points lookup for missing GWs
+  const pgs = await prisma.playerGameweekStats.findMany({
+    where: { gameweekId: { in: missingGwIds } },
+    select: { gameweekId: true, playerId: true, totalPoints: true },
+  });
+  const pts = new Map<string, number>();
+  for (const s of pgs) pts.set(`${s.gameweekId}:${s.playerId}`, s.totalPoints);
+
+  const historyUrl = `${BASE_URL}/api/entry/${entryId}/history/`;
+  const history = await fetchJsonWithRetry<EntryHistoryResponse>(historyUrl);
+
+  const costByGw = new Map<number, number>();
+  for (const r of history.current ?? []) {
+    if (typeof r.event !== 'number') continue;
+    const c = typeof r.event_transfers_cost === 'number' ? r.event_transfers_cost : 0;
+    costByGw.set(r.event, c);
+  }
+
+  const prev = await prisma.entrySeasonTotals.findUnique({
+    where: { entryId },
+    select: {
+      gwCount: true,
+      captainPointsTotal: true,
+      captainSuccess5PlusCount: true,
+      captainTop3Json: true,
+      xiGkpPointsTotal: true,
+      xiDefPointsTotal: true,
+      xiMidPointsTotal: true,
+      xiFwdPointsTotal: true,
+      xiGkpCountTotal: true,
+      xiDefCountTotal: true,
+      xiMidCountTotal: true,
+      xiFwdCountTotal: true,
+      transferCostTotal: true,
+      hitCount: true,
+      teamEOTotal: true,
+      teamEOCount: true,
+      captainEOTotal: true,
+      captainEOCount: true,
+      captainShareTotal: true,
+      captainShareCount: true,
+    },
+  });
+
+  const eoRows = await prisma.effectiveOwnership.findMany({
+    where: { gameweekId: { in: missingGwIds } },
+    select: { gameweekId: true, playerId: true, eo: true, sampleSize: true, captainCount: true },
+  });
+  const eoByGw = new Map<
+    number,
+    Map<number, { eo: number; sampleSize: number; captainCount: number | null }>
+  >();
+  for (const r of eoRows) {
+    let m = eoByGw.get(r.gameweekId);
+    if (!m) {
+      m = new Map();
+      eoByGw.set(r.gameweekId, m);
+    }
+    m.set(r.playerId, { eo: r.eo, sampleSize: r.sampleSize, captainCount: r.captainCount ?? null });
+  }
+
+  const chipsRaw = Array.isArray(history.chips) ? history.chips : [];
+  const chipsByGw = new Map<number, string[]>();
+  const chipRowsToCreate: Array<{
+    entryId: number;
+    gameweekId: number;
+    chipName: string;
+    usedAt?: Date;
+  }> = [];
+  for (const ch of chipsRaw) {
+    const name = typeof ch?.name === 'string' ? ch.name : null;
+    const event = typeof ch?.event === 'number' && Number.isFinite(ch.event) ? ch.event : null;
+    const time = typeof ch?.time === 'string' ? ch.time : null;
+    if (!name || event == null || event > computedThroughGw) continue;
+    const chipName = normalizeChipName(name, event);
+    if (!chipsByGw.has(event)) chipsByGw.set(event, []);
+    chipsByGw.get(event)!.push(chipName);
+    if (missingGwIds.includes(event)) {
+      chipRowsToCreate.push({
+        entryId,
+        gameweekId: event,
+        chipName,
+        usedAt: time ? new Date(time) : undefined,
+      });
+    }
+  }
+  if (chipRowsToCreate.length > 0) {
+    await prisma.chipUsage.createMany({
+      data: chipRowsToCreate.map((r) => ({
+        entryId: r.entryId,
+        gameweekId: r.gameweekId,
+        chipName: r.chipName,
+        points: null,
+        usedAt: r.usedAt,
+      })),
+      skipDuplicates: true,
+    });
+  }
+
+  let gwCount = prev?.gwCount ?? 0;
+  let captainPointsTotal = prev?.captainPointsTotal ?? 0;
+  let captainSuccess5PlusCount = prev?.captainSuccess5PlusCount ?? 0;
+
+  let xiGkp = prev?.xiGkpPointsTotal ?? 0;
+  let xiDef = prev?.xiDefPointsTotal ?? 0;
+  let xiMid = prev?.xiMidPointsTotal ?? 0;
+  let xiFwd = prev?.xiFwdPointsTotal ?? 0;
+
+  let xiGkpCountTotal = prev?.xiGkpCountTotal ?? 0;
+  let xiDefCountTotal = prev?.xiDefCountTotal ?? 0;
+  let xiMidCountTotal = prev?.xiMidCountTotal ?? 0;
+  let xiFwdCountTotal = prev?.xiFwdCountTotal ?? 0;
+
+  let transferCostTotal = prev?.transferCostTotal ?? 0;
+  let hitCount = prev?.hitCount ?? 0;
+
+  let teamEOTotal = prev?.teamEOTotal ?? 0;
+  let teamEOCount = prev?.teamEOCount ?? 0;
+  let captainEOTotal = prev?.captainEOTotal ?? 0;
+  let captainEOCount = prev?.captainEOCount ?? 0;
+  let captainShareTotal = prev?.captainShareTotal ?? 0;
+  let captainShareCount = prev?.captainShareCount ?? 0;
+
+  let lastSuccessfulGw = lastUpdatedGw;
+
+  const newTopCandidates: CaptainPerf[] = [];
+
+  for (const gw of missingGwIds) {
+    const picksUrl = `${BASE_URL}/api/entry/${entryId}/event/${gw}/picks/`;
+    const data = await fetchJsonWithRetry<PicksResponse>(picksUrl);
+    const picks = Array.isArray(data.picks) ? data.picks : [];
+
+    const eoByPlayer = eoByGw.get(gw) ?? new Map();
+
+    const cap = picks.find((p) => p.is_captain);
+    if (cap) {
+      const capEO = eoByPlayer.get(cap.element);
+      if (capEO) {
+        captainEOTotal += capEO.eo;
+        captainEOCount += 1;
+        if (capEO.captainCount != null && capEO.sampleSize > 0) {
+          captainShareTotal += capEO.captainCount / capEO.sampleSize;
+          captainShareCount += 1;
+        }
+      }
+    }
+
+    let teamEOThisGw = 0;
+    let ok = true;
+    for (const p of picks) {
+      const m = Number.isFinite(p.multiplier) ? p.multiplier : 1;
+      if (m <= 0) continue;
+      const row = eoByPlayer.get(p.element);
+      if (!row) {
+        ok = false;
+        break;
+      }
+      teamEOThisGw += row.eo * m;
+    }
+    if (ok) {
+      teamEOTotal += teamEOThisGw;
+      teamEOCount += 1;
+    }
+
+    const chipsUsedThisGw = chipsByGw.get(gw) ?? [];
+    for (const chipName of chipsUsedThisGw) {
+      const pointsChip = chipNameForPoints(chipName);
+      if (!pointsChip) continue;
+
+      let chipPoints: number;
+      if (pointsChip === '2capt') {
+        const vice = picks.find((p) => p.is_vice_captain);
+        const capPts = cap ? (pts.get(`${gw}:${cap.element}`) ?? 0) : 0;
+        const vicePts = vice ? (pts.get(`${gw}:${vice.element}`) ?? 0) : 0;
+        chipPoints = capPts + vicePts;
+      } else {
+        const xi = picks.filter((p) => p.position >= 1 && p.position <= 11);
+        const forwards = xi.filter((p) => elementTypeKey(p.element_type) === 'fwd');
+        chipPoints = forwards.reduce((sum, p) => sum + (pts.get(`${gw}:${p.element}`) ?? 0), 0);
+      }
+
+      await prisma.chipUsage.updateMany({
+        where: { entryId, gameweekId: gw, chipName },
+        data: { points: chipPoints },
+      });
+    }
+
+    const cost = costByGw.get(gw) ?? 0;
+    transferCostTotal += cost;
+    if (cost > 0) hitCount += 1;
+
+    const capPicks = picks.filter((p) => p.is_captain || p.multiplier > 1);
+    let captainPointsSum = 0;
+    for (const p of capPicks) {
+      const basePts = pts.get(`${gw}:${p.element}`) ?? 0;
+      captainPointsSum += basePts;
+      newTopCandidates.push({ gw, playerId: p.element, points: basePts });
+    }
+    captainPointsTotal += captainPointsSum;
+    if (captainPointsSum >= 5) captainSuccess5PlusCount += 1;
+
+    let gkpC = 0;
+    let defC = 0;
+    let midC = 0;
+    let fwdC = 0;
+
+    for (const p of picks) {
+      if (p.position > 11) continue;
+      const k = elementTypeKey(p.element_type);
+      if (k === 'gkp') gkpC += 1;
+      else if (k === 'def') defC += 1;
+      else if (k === 'mid') midC += 1;
+      else if (k === 'fwd') fwdC += 1;
+
+      const basePts = pts.get(`${gw}:${p.element}`) ?? 0;
+      if (k === 'gkp') xiGkp += basePts;
+      else if (k === 'def') xiDef += basePts;
+      else if (k === 'mid') xiMid += basePts;
+      else if (k === 'fwd') xiFwd += basePts;
+    }
+
+    xiGkpCountTotal += gkpC;
+    xiDefCountTotal += defC;
+    xiMidCountTotal += midC;
+    xiFwdCountTotal += fwdC;
+
+    gwCount += 1;
+    lastSuccessfulGw = gw;
+  }
+
+  await prisma.entrySeasonTotals.upsert({
+    where: { entryId },
+    update: {
+      lastUpdatedGw: lastSuccessfulGw,
+      gwCount,
+      captainPointsTotal,
+      captainSuccess5PlusCount,
+      xiGkpPointsTotal: xiGkp,
+      xiDefPointsTotal: xiDef,
+      xiMidPointsTotal: xiMid,
+      xiFwdPointsTotal: xiFwd,
+      xiGkpCountTotal,
+      xiDefCountTotal,
+      xiMidCountTotal,
+      xiFwdCountTotal,
+      transferCostTotal,
+      hitCount,
+      teamEOTotal,
+      teamEOCount,
+      captainEOTotal,
+      captainEOCount,
+      captainShareTotal,
+      captainShareCount,
+    },
+    create: {
+      entryId,
+      lastUpdatedGw: lastSuccessfulGw,
+      gwCount,
+      captainPointsTotal,
+      captainSuccess5PlusCount,
+      captainTop3Json: [],
+      xiGkpPointsTotal: xiGkp,
+      xiDefPointsTotal: xiDef,
+      xiMidPointsTotal: xiMid,
+      xiFwdPointsTotal: xiFwd,
+      xiGkpCountTotal,
+      xiDefCountTotal,
+      xiMidCountTotal,
+      xiFwdCountTotal,
+      transferCostTotal,
+      hitCount,
+      teamEOTotal,
+      teamEOCount,
+      captainEOTotal,
+      captainEOCount,
+      captainShareTotal,
+      captainShareCount,
+    },
+  });
+}
+
 export async function computeEntryInsights(prisma: PrismaClient, entryId: number) {
-  const entryGws = await prisma.entryGameweek.findMany({
-    where: { entryId, gameweek: { finished: true } },
-    include: { picks: true },
+  const lastFinished = await prisma.gameweek.findFirst({
+    where: { finished: true },
+    orderBy: { id: 'desc' },
+    select: { id: true },
+  });
+  const computedThroughGw = lastFinished?.id ?? 0;
+
+  if (computedThroughGw > 0) {
+    await prisma.entry.upsert({
+      where: { id: entryId },
+      update: {},
+      create: { id: entryId, entryName: `Entry ${entryId}`, playerName: `Entry ${entryId}` },
+    });
+
+    await ensureEntrySeasonTotalsUpToDate(prisma, entryId, computedThroughGw);
+  }
+
+  // --- User totals
+  const totals = await prisma.entrySeasonTotals.findUnique({
+    where: { entryId },
+    select: {
+      lastUpdatedGw: true,
+      gwCount: true,
+
+      captainPointsTotal: true,
+      captainSuccess5PlusCount: true,
+      captainTop3Json: true,
+
+      xiGkpPointsTotal: true,
+      xiDefPointsTotal: true,
+      xiMidPointsTotal: true,
+      xiFwdPointsTotal: true,
+
+      xiGkpCountTotal: true,
+      xiDefCountTotal: true,
+      xiMidCountTotal: true,
+      xiFwdCountTotal: true,
+
+      transferCostTotal: true,
+      hitCount: true,
+
+      teamEOTotal: true,
+      teamEOCount: true,
+      captainEOTotal: true,
+      captainEOCount: true,
+      captainShareTotal: true,
+      captainShareCount: true,
+    },
+  });
+
+  const gwCount = totals?.gwCount ?? 0;
+
+  const userAvgCaptainPoints = gwCount > 0 ? (totals?.captainPointsTotal ?? 0) / gwCount : null;
+  const userReturns5Plus = totals?.captainSuccess5PlusCount ?? 0;
+
+  const userAvgByPos =
+    gwCount > 0
+      ? {
+          gkp: (totals?.xiGkpPointsTotal ?? 0) / gwCount,
+          def: (totals?.xiDefPointsTotal ?? 0) / gwCount,
+          mid: (totals?.xiMidPointsTotal ?? 0) / gwCount,
+          fwd: (totals?.xiFwdPointsTotal ?? 0) / gwCount,
+        }
+      : null;
+
+  const userAvgXI =
+    gwCount > 0
+      ? {
+          gkp: (totals?.xiGkpCountTotal ?? 0) / gwCount,
+          def: (totals?.xiDefCountTotal ?? 0) / gwCount,
+          mid: (totals?.xiMidCountTotal ?? 0) / gwCount,
+          fwd: (totals?.xiFwdCountTotal ?? 0) / gwCount,
+        }
+      : null;
+
+  const userHitRate = gwCount > 0 ? (totals?.hitCount ?? 0) / gwCount : null;
+  const userAvgTransferCost = gwCount > 0 ? (totals?.transferCostTotal ?? 0) / gwCount : null;
+
+  // --- overallRank now (at computedThroughGw)
+  const BASE_URL = process.env.ESF_BASE_URL ?? 'https://en.fantasy.eliteserien.no';
+  let overallRankNow: number | null = null;
+
+  if (computedThroughGw > 0) {
+    const historyUrl = `${BASE_URL}/api/entry/${entryId}/history/`;
+    const history = await fetchJsonWithRetry<EntryHistoryResponse>(historyUrl);
+    const row = (history.current ?? []).find((r) => r.event === computedThroughGw);
+    const r = row?.overall_rank;
+    overallRankNow = typeof r === 'number' ? r : null;
+  }
+
+  const brackets = await prisma.bracket.findMany({
+    select: { id: true, name: true, rankFrom: true, rankTo: true, active: true },
+    orderBy: { rankFrom: 'asc' },
+  });
+  const bracket = findBracketForRank(overallRankNow, brackets);
+
+  const bracketStats = bracket
+    ? await prisma.bracketStats.findUnique({
+        where: { bracketId: bracket.id },
+        select: {
+          bracketId: true,
+          computedThroughGameweekId: true,
+          version: true,
+          sampleSize: true,
+          data: true,
+        },
+      })
+    : null;
+
+  const baseline = (bracketStats?.data ?? null) as any;
+
+  const baselineAvgCaptainPoints =
+    baseline?.points?.captain?.avgCaptainPoints != null
+      ? Number(baseline.points.captain.avgCaptainPoints)
+      : null;
+
+  const baselineSuccessRate5Plus =
+    baseline?.points?.captain?.successRate5Plus != null
+      ? Number(baseline.points.captain.successRate5Plus)
+      : null;
+
+  const baselineAvgByPos =
+    baseline?.points?.byPosition != null
+      ? {
+          gkp: Number(baseline.points.byPosition.gkp ?? 0),
+          def: Number(baseline.points.byPosition.def ?? 0),
+          mid: Number(baseline.points.byPosition.mid ?? 0),
+          fwd: Number(baseline.points.byPosition.fwd ?? 0),
+        }
+      : null;
+
+  const baselineAvgXI =
+    baseline?.points?.xi != null
+      ? {
+          gkp: Number(baseline.points.xi.gkp ?? 0),
+          def: Number(baseline.points.xi.def ?? 0),
+          mid: Number(baseline.points.xi.mid ?? 0),
+          fwd: Number(baseline.points.xi.fwd ?? 0),
+        }
+      : null;
+
+  const baselineHitRate = baseline?.risk?.hitRate != null ? Number(baseline.risk.hitRate) : null;
+  const baselineAvgTransferCost =
+    baseline?.risk?.avgTransferCost != null ? Number(baseline.risk.avgTransferCost) : null;
+
+  const baselineAvgTeamEO =
+    baseline?.risk?.avgTeamEO != null ? Number(baseline.risk.avgTeamEO) : null;
+  const baselineAvgCaptainEO =
+    baseline?.risk?.avgCaptainEO != null ? Number(baseline.risk.avgCaptainEO) : null;
+  const baselineAvgCaptainShare =
+    baseline?.risk?.avgCaptainShare != null ? Number(baseline.risk.avgCaptainShare) : null;
+
+  const teamEOCount = totals?.teamEOCount ?? 0;
+  const captainEOCount = totals?.captainEOCount ?? 0;
+  const captainShareCount = totals?.captainShareCount ?? 0;
+  const userAvgTeamEO = teamEOCount > 0 ? (totals?.teamEOTotal ?? 0) / teamEOCount : null;
+  const userAvgCaptainEO =
+    captainEOCount > 0 ? (totals?.captainEOTotal ?? 0) / captainEOCount : null;
+  const userAvgCaptainShare =
+    captainShareCount > 0 ? (totals?.captainShareTotal ?? 0) / captainShareCount : null;
+
+  // Chips baseline (fra BracketStats snapshot)
+  const baselineChips = baseline?.chips ?? null;
+  const baselineCoverage = baseline?.points?.coverage ?? baseline?.coverage ?? null;
+
+  // --- Top 3 captains (user) -> med navn
+  const top3Raw = Array.isArray(totals?.captainTop3Json) ? (totals?.captainTop3Json as any[]) : [];
+  const top3 = top3Raw
+    .map((x) => ({
+      gw: typeof x?.gw === 'number' ? x.gw : null,
+      playerId: typeof x?.playerId === 'number' ? x.playerId : null,
+      points: typeof x?.points === 'number' ? x.points : null,
+    }))
+    .filter((x) => x.gw != null && x.playerId != null && x.points != null) as Array<{
+    gw: number;
+    playerId: number;
+    points: number;
+  }>;
+
+  const playerIds = Array.from(new Set(top3.map((x) => x.playerId)));
+  const players =
+    playerIds.length > 0
+      ? await prisma.player.findMany({
+          where: { id: { in: playerIds } },
+          select: { id: true, webName: true },
+        })
+      : [];
+
+  const nameById = new Map<number, string>();
+  for (const p of players) nameById.set(p.id, p.webName);
+
+  const topCaptains = top3.map((x, i) => ({
+    rank: i + 1,
+    playerId: x.playerId,
+    playerName: nameById.get(x.playerId) ?? `#${x.playerId}`,
+    gw: x.gw,
+    points: x.points,
+  }));
+
+  // --- User chips
+  const chipRows = await prisma.chipUsage.findMany({
+    where: { entryId, gameweekId: { lte: computedThroughGw } },
+    select: { gameweekId: true, chipName: true, points: true },
     orderBy: { gameweekId: 'asc' },
   });
 
+  const used: Record<string, Array<{ gameweekId: number; points?: number | null }>> = {};
+  for (const c of chipRows) {
+    const k = normalizeChipName(c.chipName, c.gameweekId);
+    if (!used[k]) used[k] = [];
+    used[k].push({ gameweekId: c.gameweekId, points: c.points ?? null });
+  }
+
+  const knownChips: NormalizedChipKey[] = ['wildcard1', 'wildcard2', '2capt', 'frush', 'rich'];
+  const notUsed = knownChips.filter((k) => !used[k] || used[k].length === 0);
+
+  const pointsByChip: Record<string, Array<{ gameweekId: number; points: number | null }>> = {};
+  for (const k of Object.keys(used)) {
+    const arr = used[k].map((x) => ({ gameweekId: x.gameweekId, points: x.points ?? null }));
+    const canonical = chipNameForPoints(k);
+    const key = canonical ?? k;
+    pointsByChip[key] = [...(pointsByChip[key] ?? []), ...arr];
+  }
+
+  // --- Build insights object (old-style inside insights)
   const threshold = 5;
 
-  if (entryGws.length === 0) {
-    const empty = {
-      captain: {
-        threshold,
-        returns5Plus: 0,
-        usedGameweeks: 0,
-        missingPointsGameweeks: 0,
-        missingCaptainGameweeks: 0,
-        totalFinishedGameweeksWithPicks: 0,
-        assumedZeroCaptainPlayers: 0,
-        assumedZeroCaptainGameweeks: 0,
-      },
-      risk: {
-        byGameweek: [],
-        summary: {
-          avgCaptainShare: null,
-          avgBaselineCaptainEO: null,
-          captainShareDiff: null,
-          avgTeamEO: null,
-          avgBaselineTeamEO: null,
-          teamEODiff: null,
-          avgUserTransferCost: null,
-          avgBaselineTransferCost: null,
-          transferCostDiff: null,
-          userHitRate: null,
-          baselineHitRate: null,
-          usedGameweeks: 0,
-        },
-      },
-      points: {
-        byGameweek: [],
-        summary: {
-          avgUserCaptainPoints: null,
-          avgBaselineCaptainPoints: null,
-          captainPointsDiff: null,
-
-          avgUserByPosition: null,
-          avgBaselineByPosition: null,
-          byPositionDiff: null,
-
-          avgUserXI: null,
-          avgBaselineXI: null,
-          xiDiff: null,
-
-          usedGameweeks: 0,
-        },
-      },
-      chips: {
-        used: {},
-        notUsed: ['wildcard1', 'wildcard2', '2capt', 'frush', 'rich'],
-        pointsByChip: { '2capt': [], frush: [] },
-      },
-    };
-
-    await prisma.entryInsights.upsert({
-      where: { entryId },
-      create: { entryId, computedThroughGameweekId: 0, version: 3, data: empty },
-      update: {
-        entryId,
-        computedThroughGameweekId: 0,
-        version: 3,
-        data: empty,
-        computedAt: new Date(),
-      },
-    });
-
-    return empty;
-  }
-
-  // --- Preload: brackets + player position map ---
-  const brackets = await prisma.bracket.findMany({
-    select: { id: true, rankFrom: true, rankTo: true, active: true },
-    orderBy: { rankFrom: 'asc' },
-  });
-
-  const players = await prisma.player.findMany({ select: { id: true, positionId: true } });
-  const positionByPlayerId = new Map<number, number>();
-  for (const p of players) positionByPlayerId.set(p.id, p.positionId);
-
-  const captainPairs: Array<{ playerId: number; gameweekId: number }> = [];
-  for (const gwRow of entryGws) {
-    const capPicks = gwRow.picks.filter((p) => p.isCaptain === true || p.multiplier > 1);
-    for (const p of capPicks)
-      captainPairs.push({ playerId: p.playerId, gameweekId: gwRow.gameweekId });
-  }
-
-  const uniqueCaptainPlayerIds = Array.from(new Set(captainPairs.map((r) => r.playerId)));
-  const uniqueCaptainGwIds = Array.from(new Set(captainPairs.map((r) => r.gameweekId)));
-
-  const captainStatsRows =
-    uniqueCaptainPlayerIds.length === 0 || uniqueCaptainGwIds.length === 0
-      ? []
-      : await prisma.playerGameweekStats.findMany({
-          where: {
-            playerId: { in: uniqueCaptainPlayerIds },
-            gameweekId: { in: uniqueCaptainGwIds },
-          },
-          select: { playerId: true, gameweekId: true, totalPoints: true },
-        });
-
-  const statsMap = new Map<string, number>();
-  for (const r of captainStatsRows) statsMap.set(key(r.playerId, r.gameweekId), r.totalPoints);
-
-  let returns5Plus = 0;
-  let usedGameweeks = 0;
-
-  let baselineExpectedReturns5Plus = 0; // summerer bracketens successRate5Plus per GW
-  let baselineReturnsUsedGameweeks = 0; // antall GWs der baseline finnes
-  let baselineReturnsMissingGameweeks = 0; // antall GWs der baseline mangler
-
-  const missingPointsGameweeks = 0;
-
-  let assumedZeroCaptainPlayers = 0;
-  let assumedZeroCaptainGameweeks = 0;
-
-  const topCandidates: Array<{ playerId: number; gameweekId: number; points: number }> = [];
-
-  for (const gwRow of entryGws) {
-    const capPicks = gwRow.picks.filter((p) => p.isCaptain === true || p.multiplier > 1);
-
-    let captainPointsSum = 0;
-
-    if (capPicks.length === 0) {
-      assumedZeroCaptainGameweeks += 1;
-    } else {
-      for (const p of capPicks) {
-        const pts = statsMap.get(key(p.playerId, gwRow.gameweekId));
-        if (pts == null) {
-          assumedZeroCaptainPlayers += 1;
-          // treat missing as 0
-          continue;
-        }
-        captainPointsSum += pts;
-      }
-    }
-
-    usedGameweeks += 1;
-    if (captainPointsSum >= threshold) returns5Plus += 1;
-  }
-
-  // Multiplier kun for å finne 11-er, ikke kaptein
-  const pointsPairs: Array<{ playerId: number; gameweekId: number }> = [];
-
-  for (const gwRow of entryGws) {
-    const gwId = gwRow.gameweekId;
-
-    // 11-er
-    for (const p of gwRow.picks) {
-      if (p.multiplier > 0) pointsPairs.push({ playerId: p.playerId, gameweekId: gwId });
-    }
-
-    // captain: samme metode
-    const captainPick =
-      gwRow.picks.find((p) => p.isCaptain) ??
-      gwRow.picks.filter((p) => p.multiplier > 1).sort((a, b) => b.multiplier - a.multiplier)[0] ??
-      null;
-
-    if (captainPick) pointsPairs.push({ playerId: captainPick.playerId, gameweekId: gwId });
-  }
-
-  const uniquePointPlayerIds = Array.from(new Set(pointsPairs.map((r) => r.playerId)));
-  const uniquePointGwIds = Array.from(new Set(pointsPairs.map((r) => r.gameweekId)));
-
-  const pointRows =
-    uniquePointPlayerIds.length === 0 || uniquePointGwIds.length === 0
-      ? []
-      : await prisma.playerGameweekStats.findMany({
-          where: {
-            playerId: { in: uniquePointPlayerIds },
-            gameweekId: { in: uniquePointGwIds },
-          },
-          select: { playerId: true, gameweekId: true, totalPoints: true },
-        });
-
-  const pointsMap = new Map<string, number>();
-  for (const r of pointRows) pointsMap.set(key(r.playerId, r.gameweekId), r.totalPoints);
-
-  const riskByGameweek: Array<{
-    gameweekId: number;
-    bracketId: number | null;
-    overallRank: number | null;
-    captainPlayerId: number | null;
-
-    userCaptainShare: number | null;
-    baselineCaptainEO: number | null;
-
-    userTeamEO: number | null;
-    baselineTeamEO: number | null;
-
-    userTransferCost: number | null;
-    baselineAvgTransferCost: number | null;
-    baselineHitRate: number | null;
-
-    missing: {
-      bracket: boolean;
-      baseline: boolean;
-      captainEO: boolean;
-      teamEO: boolean;
-      hits: boolean;
-    };
-  }> = [];
-
-  const pointsByGameweek: Array<{
-    gameweekId: number;
-    bracketId: number | null;
-
-    user: {
-      captainPoints: number | null;
-      byPosition: PosBuckets | null;
-      xi: PosBuckets | null;
-    };
-
-    baseline: {
-      captainPoints: number | null;
-      byPosition: PosBuckets | null;
-      xi: PosBuckets | null;
-    };
-
-    missing: {
-      bracket: boolean;
-      baseline: boolean;
-      userPoints: boolean;
-      userCaptainPoints: boolean;
-    };
-  }> = [];
-
-  for (const gwRow of entryGws) {
-    const gwId = gwRow.gameweekId;
-
-    const bracketId = findBracketIdForRank(gwRow.overallRank, brackets);
-
-    // finn kaptein
-    const captainPick =
-      gwRow.picks.find((p) => p.isCaptain) ??
-      gwRow.picks.filter((p) => p.multiplier > 1).sort((a, b) => b.multiplier - a.multiplier)[0] ??
-      null;
-
-    const captainPlayerId = captainPick?.playerId ?? null;
-
-    let baselineCaptainEO: number | null = null;
-    let baselineTeamEO: number | null = null;
-
-    let baselineAvgTransferCost: number | null = null;
-    let baselineHitRate: number | null = null;
-
-    let baselineCaptainPoints: number | null = null;
-    let baselineByPosition: PosBuckets | null = null;
-    let baselineXI: PosBuckets | null = null;
-
-    if (bracketId != null) {
-      const bgs = await prisma.bracketGameweekStats.findFirst({
-        where: { gameweekId: gwId, bracketId, version: 1 },
-        select: { data: true },
-      });
-
-      const d = bgs?.data as any;
-
-      baselineCaptainEO =
-        typeof d?.risk?.avgCaptainEO === 'number' ? (d.risk.avgCaptainEO as number) : null;
-      baselineTeamEO = typeof d?.risk?.avgTeamEO === 'number' ? (d.risk.avgTeamEO as number) : null;
-
-      baselineAvgTransferCost =
-        typeof d?.risk?.avgTransferCost === 'number' ? (d.risk.avgTransferCost as number) : null;
-      baselineHitRate = typeof d?.risk?.hitRate === 'number' ? (d.risk.hitRate as number) : null;
-
-      baselineCaptainPoints =
-        typeof d?.points?.captain?.avgCaptainPoints === 'number'
-          ? (d.points.captain.avgCaptainPoints as number)
-          : null;
-
-      const baselineCaptainSuccessRate5Plus =
-        typeof d?.points?.captain?.successRate5Plus === 'number'
-          ? (d.points.captain.successRate5Plus as number)
-          : null;
-
-      if (baselineCaptainSuccessRate5Plus != null) {
-        baselineExpectedReturns5Plus += baselineCaptainSuccessRate5Plus;
-        baselineReturnsUsedGameweeks += 1;
-      } else {
-        baselineReturnsMissingGameweeks += 1;
-      }
-
-      const bp = d?.points?.byPosition;
-      if (bp && typeof bp === 'object') {
-        const gkp = typeof bp.gkp === 'number' ? (bp.gkp as number) : 0;
-        const def = typeof bp.def === 'number' ? (bp.def as number) : 0;
-        const mid = typeof bp.mid === 'number' ? (bp.mid as number) : 0;
-        const fwd = typeof bp.fwd === 'number' ? (bp.fwd as number) : 0;
-        baselineByPosition = { gkp, def, mid, fwd };
-      } else {
-        baselineByPosition = null;
-      }
-
-      const xi = d?.points?.avgXI;
-      if (xi && typeof xi === 'object') {
-        const gkp = typeof xi.gkp === 'number' ? (xi.gkp as number) : 0;
-        const def = typeof xi.def === 'number' ? (xi.def as number) : 0;
-        const mid = typeof xi.mid === 'number' ? (xi.mid as number) : 0;
-        const fwd = typeof xi.fwd === 'number' ? (xi.fwd as number) : 0;
-        baselineXI = { gkp, def, mid, fwd };
-      } else {
-        baselineXI = null;
-      }
-    } else {
-      // No bracket => baseline unavailable for this GW
-      baselineReturnsMissingGameweeks += 1;
-    }
-
-    // user risk metrics
-    let userCaptainShare: number | null = null;
-    let userTeamEO: number | null = null;
-
-    const userTransferCost =
-      typeof gwRow.eventTransfersCost === 'number' ? (gwRow.eventTransfersCost as number) : 0;
-
-    if (bracketId != null) {
-      const pickedPlayerIds = gwRow.picks.map((p) => p.playerId);
-
-      const eoRows = await prisma.effectiveOwnership.findMany({
-        where: {
-          gameweekId: gwId,
-          bracketId,
-          playerId: { in: pickedPlayerIds },
-        },
-        select: { playerId: true, eo: true },
-      });
-
-      const eoMap = new Map<number, number>();
-      for (const r of eoRows) eoMap.set(r.playerId, r.eo);
-
-      let sum = 0;
-      let haveAny = false;
-      for (const pid of pickedPlayerIds) {
-        const eo = eoMap.get(pid);
-        if (eo == null) continue;
-        sum += eo;
-        haveAny = true;
-      }
-      userTeamEO = haveAny ? sum : null;
-
-      if (captainPlayerId != null) {
-        const cap = await prisma.effectiveOwnership.findUnique({
-          where: {
-            gameweekId_bracketId_playerId: {
-              gameweekId: gwId,
-              bracketId,
-              playerId: captainPlayerId,
-            },
-          },
-          select: { captainCount: true, sampleSize: true },
-        });
-
-        if (cap && cap.sampleSize > 0 && typeof cap.captainCount === 'number') {
-          userCaptainShare = cap.captainCount / cap.sampleSize;
-        }
-      }
-    }
-
-    riskByGameweek.push({
-      gameweekId: gwId,
-      bracketId,
-      overallRank: gwRow.overallRank ?? null,
-      captainPlayerId,
-
-      userCaptainShare,
-      baselineCaptainEO,
-
-      userTeamEO,
-      baselineTeamEO,
-
-      userTransferCost,
-      baselineAvgTransferCost,
-      baselineHitRate,
-
-      missing: {
-        bracket: bracketId == null,
-        baseline:
-          bracketId != null &&
-          (baselineCaptainEO == null ||
-            baselineTeamEO == null ||
-            baselineAvgTransferCost == null ||
-            baselineHitRate == null),
-        captainEO: bracketId != null && captainPlayerId != null && userCaptainShare == null,
-        teamEO: bracketId != null && userTeamEO == null,
-        hits: bracketId != null && (baselineAvgTransferCost == null || baselineHitRate == null),
-      },
-    });
-
-    // Antar 0 poeng for manglende spillerpoeng
-    let missingAnyUserPoints = false;
-
-    let userCaptainPoints: number | null = null;
-    // capPicks: use explicit isCaptain if present, otherwise fallback multiplier>1
-    const capPicksForUser = gwRow.picks.filter((p) => p.isCaptain === true || p.multiplier > 1);
-    if (capPicksForUser.length === 0) {
-      userCaptainPoints = null;
-    } else {
-      let capSum = 0;
-      let bestPlayerId: number | null = null;
-      let bestPoints = -1;
-      for (const p of capPicksForUser) {
-        const pts = pointsMap.get(key(p.playerId, gwId));
-        const val = pts == null ? 0 : pts;
-        if (pts == null) missingAnyUserPoints = true;
-        capSum += val;
-        if (val > bestPoints) {
-          bestPoints = val;
-          bestPlayerId = p.playerId;
-        }
-      }
-
-      userCaptainPoints = capSum;
-
-      if (bestPlayerId != null) {
-        topCandidates.push({ playerId: bestPlayerId, gameweekId: gwId, points: bestPoints });
-      }
-    }
-
-    const userByPos = emptyBuckets();
-    const userXI = emptyBuckets();
-
-    // XI
-    const xiPicks = gwRow.picks.filter((p) => p.multiplier > 0);
-    for (const p of xiPicks) {
-      const posId = positionByPlayerId.get(p.playerId) ?? -1;
-      const k = posKey(posId);
-      if (k === 'unknown') continue;
-
-      userXI[k] += 1;
-
-      const pts = pointsMap.get(key(p.playerId, gwId));
-      if (pts == null) {
-        missingAnyUserPoints = true;
-        // assumed 0
-      } else {
-        userByPos[k] += pts;
-      }
-    }
-
-    pointsByGameweek.push({
-      gameweekId: gwId,
-      bracketId,
-
-      user: {
-        captainPoints: userCaptainPoints,
-        byPosition: userByPos,
-        xi: userXI,
-      },
-
-      baseline: {
-        captainPoints: baselineCaptainPoints,
-        byPosition: baselineByPosition,
-        xi: baselineXI,
-      },
-
-      missing: {
-        bracket: bracketId == null,
-        baseline:
-          bracketId != null &&
-          (baselineCaptainPoints == null || baselineByPosition == null || baselineXI == null),
-        userPoints: missingAnyUserPoints,
-        userCaptainPoints:
-          captainPlayerId != null && userCaptainPoints === 0 && missingAnyUserPoints,
-      },
-    });
-  }
-
-  //Risk summaries
-  const captainShares = riskByGameweek
-    .map((r) => r.userCaptainShare)
-    .filter((x): x is number => typeof x === 'number');
-  const baselineCapt = riskByGameweek
-    .map((r) => r.baselineCaptainEO)
-    .filter((x): x is number => typeof x === 'number');
-
-  const teamEOs = riskByGameweek
-    .map((r) => r.userTeamEO)
-    .filter((x): x is number => typeof x === 'number');
-  const baselineTeam = riskByGameweek
-    .map((r) => r.baselineTeamEO)
-    .filter((x): x is number => typeof x === 'number');
-
-  const avgCaptainShare = avg(captainShares);
-  const avgBaselineCaptainEO = avg(baselineCapt);
-  const captainShareDiff =
-    avgCaptainShare != null && avgBaselineCaptainEO != null
-      ? avgCaptainShare - avgBaselineCaptainEO
-      : null;
-
-  const avgTeamEO = avg(teamEOs);
-  const avgBaselineTeamEO = avg(baselineTeam);
-  const teamEODiff =
-    avgTeamEO != null && avgBaselineTeamEO != null ? avgTeamEO - avgBaselineTeamEO : null;
-
-  const userTransferCosts = riskByGameweek
-    .map((r) => r.userTransferCost)
-    .filter((x): x is number => typeof x === 'number');
-  const baselineTransferCosts = riskByGameweek
-    .map((r) => r.baselineAvgTransferCost)
-    .filter((x): x is number => typeof x === 'number');
-  const baselineHitRates = riskByGameweek
-    .map((r) => r.baselineHitRate)
-    .filter((x): x is number => typeof x === 'number');
-
-  const avgUserTransferCost = avg(userTransferCosts);
-  const avgBaselineTransferCost = avg(baselineTransferCosts);
-  const transferCostDiff =
-    avgUserTransferCost != null && avgBaselineTransferCost != null
-      ? avgUserTransferCost - avgBaselineTransferCost
-      : null;
-
-  const userHitRate =
-    riskByGameweek.length === 0
-      ? null
-      : riskByGameweek.filter((r) => (r.userTransferCost ?? 0) > 0).length / riskByGameweek.length;
-
-  const baselineHitRate = avg(baselineHitRates);
-
-  //Points summaries
-  const userCapPts = pointsByGameweek
-    .map((r) => r.user.captainPoints)
-    .filter((x): x is number => typeof x === 'number');
-
-  const baseCapPts = pointsByGameweek
-    .map((r) => r.baseline.captainPoints)
-    .filter((x): x is number => typeof x === 'number');
-
-  const avgUserCaptainPoints = avg(userCapPts);
-  const avgBaselineCaptainPoints = avg(baseCapPts);
-  const captainPointsDiff =
-    avgUserCaptainPoints != null && avgBaselineCaptainPoints != null
-      ? avgUserCaptainPoints - avgBaselineCaptainPoints
-      : null;
-
-  function bucketAvg(items: PosBuckets[]) {
-    if (items.length === 0) return null;
-    const sum = emptyBuckets();
-    for (const b of items) {
-      sum.gkp += b.gkp;
-      sum.def += b.def;
-      sum.mid += b.mid;
-      sum.fwd += b.fwd;
-    }
-    return {
-      gkp: sum.gkp / items.length,
-      def: sum.def / items.length,
-      mid: sum.mid / items.length,
-      fwd: sum.fwd / items.length,
-    };
-  }
-
-  function bucketDiff(a: PosBuckets | null, b: PosBuckets | null) {
-    if (!a || !b) return null;
-    return { gkp: a.gkp - b.gkp, def: a.def - b.def, mid: a.mid - b.mid, fwd: a.fwd - b.fwd };
-  }
-
-  const userByPosList = pointsByGameweek
-    .map((r) => r.user.byPosition)
-    .filter((x): x is PosBuckets => x != null);
-  const baseByPosList = pointsByGameweek
-    .map((r) => r.baseline.byPosition)
-    .filter((x): x is PosBuckets => x != null);
-
-  const userXIList = pointsByGameweek
-    .map((r) => r.user.xi)
-    .filter((x): x is PosBuckets => x != null);
-  const baseXIList = pointsByGameweek
-    .map((r) => r.baseline.xi)
-    .filter((x): x is PosBuckets => x != null);
-
-  const avgUserByPosition = bucketAvg(userByPosList);
-  const avgBaselineByPosition = bucketAvg(baseByPosList);
-  const byPositionDiff = bucketDiff(avgUserByPosition, avgBaselineByPosition);
-
-  const avgUserXI = bucketAvg(userXIList);
-  const avgBaselineXI = bucketAvg(baseXIList);
-  const xiDiff = bucketDiff(avgUserXI, avgBaselineXI);
-
-  const computedThroughGameweekId = entryGws[entryGws.length - 1]!.gameweekId;
-
-  const avgSuccessRate5Plus =
-    baselineReturnsUsedGameweeks > 0
-      ? baselineExpectedReturns5Plus / baselineReturnsUsedGameweeks
-      : null;
-  const returns5PlusDiff =
-    baselineReturnsUsedGameweeks > 0 ? returns5Plus - baselineExpectedReturns5Plus : null;
   const expectedReturns5Plus =
-    baselineReturnsUsedGameweeks > 0 ? baselineExpectedReturns5Plus : null;
+    baselineSuccessRate5Plus != null && gwCount > 0 ? baselineSuccessRate5Plus * gwCount : null;
 
-  // Top 3 captains (best captain pick per GW)
-  const topCandidatesSorted = topCandidates.sort((a, b) => b.points - a.points);
-  const top3 = topCandidatesSorted.slice(0, 3);
-  const topPlayerIds = Array.from(new Set(top3.map((t) => t.playerId)));
-  const topPlayers =
-    topPlayerIds.length === 0
-      ? []
-      : await prisma.player.findMany({
-          where: { id: { in: topPlayerIds } },
-          select: { id: true, webName: true },
-        });
-  const nameById = new Map<number, string>();
-  for (const p of topPlayers) nameById.set(p.id, p.webName);
-  const topCaptains = top3.map((t) => ({
-    playerId: t.playerId,
-    playerName: nameById.get(t.playerId) ?? null,
-    gameweekId: t.gameweekId,
-    points: t.points,
-  }));
+  const returns5PlusDiff =
+    expectedReturns5Plus != null ? userReturns5Plus - expectedReturns5Plus : null;
 
-  // --- CHIPS (API pipeline) ---
-  // Hent chip usage fra Eliteserien sitt /history API (ikke fra DB)
-  const baseUrl = (process.env.ELITESERIEN_BASE_URL ?? 'https://en.fantasy.eliteserien.no').replace(
-    /\/+$/,
-    ''
-  );
+  const captain = {
+    threshold,
+    returns5Plus: userReturns5Plus,
+    usedGameweeks: gwCount,
+    missingPointsGameweeks: 0,
+    missingCaptainGameweeks: 0,
+    totalFinishedGameweeksWithPicks: gwCount,
+    assumedZeroCaptainPlayers: 0,
+    assumedZeroCaptainGameweeks: 0,
+    baseline: {
+      expectedReturns5Plus,
+      avgSuccessRate5Plus: baselineSuccessRate5Plus,
+      usedGameweeks: gwCount,
+      missingGameweeks: 0,
+    },
+    diff: {
+      returns5Plus: returns5PlusDiff,
+    },
+    topCaptains,
+  };
 
-  type HistoryChipRow = { name?: unknown; event?: unknown; time?: unknown };
+  const pointsSummary = {
+    avgUserCaptainPoints: userAvgCaptainPoints,
+    avgBaselineCaptainPoints: baselineAvgCaptainPoints,
+    captainPointsDiff:
+      userAvgCaptainPoints != null && baselineAvgCaptainPoints != null
+        ? userAvgCaptainPoints - baselineAvgCaptainPoints
+        : null,
 
-  async function fetchJson<T>(url: string): Promise<T> {
-    const res = await fetch(url, {
-      headers: {
-        Accept: 'application/json',
-        'User-Agent': 'esf-api/entry-insights',
-      },
-    });
+    avgUserByPosition: userAvgByPos,
+    avgBaselineByPosition: baselineAvgByPos,
+    byPositionDiff:
+      userAvgByPos != null && baselineAvgByPos != null
+        ? {
+            gkp: userAvgByPos.gkp - baselineAvgByPos.gkp,
+            def: userAvgByPos.def - baselineAvgByPos.def,
+            mid: userAvgByPos.mid - baselineAvgByPos.mid,
+            fwd: userAvgByPos.fwd - baselineAvgByPos.fwd,
+          }
+        : null,
 
-    if (!res.ok) {
-      throw new Error(`fetch failed ${res.status} for ${url}`);
-    }
+    avgUserXI: userAvgXI,
+    avgBaselineXI: baselineAvgXI,
+    xiDiff:
+      userAvgXI != null && baselineAvgXI != null
+        ? {
+            gkp: userAvgXI.gkp - baselineAvgXI.gkp,
+            def: userAvgXI.def - baselineAvgXI.def,
+            mid: userAvgXI.mid - baselineAvgXI.mid,
+            fwd: userAvgXI.fwd - baselineAvgXI.fwd,
+          }
+        : null,
 
-    // Node/undici håndterer gzip automatisk
-    return (await res.json()) as T;
-  }
+    usedGameweeks: gwCount,
+  };
 
-  async function getPlayerPointsCached(playerId: number, gwId: number): Promise<number> {
-    const k = key(playerId, gwId);
-    const cached = pointsMap.get(k);
-    if (typeof cached === 'number') return cached;
+  const riskSummary = {
+    avgUserCaptainEO: userAvgCaptainEO,
+    avgBaselineCaptainEO: baselineAvgCaptainEO,
+    captainEODiff:
+      userAvgCaptainEO != null && baselineAvgCaptainEO != null
+        ? userAvgCaptainEO - baselineAvgCaptainEO
+        : null,
 
-    const row = await prisma.playerGameweekStats.findUnique({
-      where: { playerId_gameweekId: { playerId, gameweekId: gwId } },
-      select: { totalPoints: true },
-    });
+    avgUserCaptainShare: userAvgCaptainShare,
+    avgBaselineCaptainShare: baselineAvgCaptainShare,
+    captainShareDiff:
+      userAvgCaptainShare != null && baselineAvgCaptainShare != null
+        ? userAvgCaptainShare - baselineAvgCaptainShare
+        : null,
 
-    const pts = row?.totalPoints ?? 0;
-    pointsMap.set(k, pts);
-    return pts;
-  }
+    avgTeamEO: userAvgTeamEO,
+    avgBaselineTeamEO: baselineAvgTeamEO,
+    teamEODiff:
+      userAvgTeamEO != null && baselineAvgTeamEO != null ? userAvgTeamEO - baselineAvgTeamEO : null,
 
-  // 1) Hent chips fra history
-  let historyChips: HistoryChipRow[] = [];
-  try {
-    const hist = await fetchJson<{ chips?: unknown }>(`${baseUrl}/api/entry/${entryId}/history/`);
-    historyChips = Array.isArray(hist?.chips) ? (hist.chips as HistoryChipRow[]) : [];
-  } catch {
-    historyChips = [];
-  }
+    avgUserTransferCost: userAvgTransferCost,
+    avgBaselineTransferCost: baselineAvgTransferCost,
+    transferCostDiff:
+      userAvgTransferCost != null && baselineAvgTransferCost != null
+        ? userAvgTransferCost - baselineAvgTransferCost
+        : null,
 
-  // known keys (inkl wildcard1/2)
-  const knownChipKeys = new Set<string>(['wildcard1', 'wildcard2', '2capt', 'frush', 'rich']);
+    userHitRate,
+    baselineHitRate,
 
-  const chipsUsed: Record<string, Array<{ gameweekId: number; points?: number }>> = {};
-  const usedGws2capt = new Set<number>();
-  const usedGwsFrush = new Set<number>();
-
-  for (const r of historyChips) {
-    const rawName = typeof r?.name === 'string' ? r.name : '';
-    const gwId = typeof r?.event === 'number' ? r.event : Number(r?.event);
-
-    if (!Number.isFinite(gwId) || gwId <= 0) continue;
-    if (gwId > computedThroughGameweekId) continue;
-
-    const chipKey = normalizeChipName(rawName, gwId);
-    knownChipKeys.add(chipKey);
-
-    if (!chipsUsed[chipKey]) chipsUsed[chipKey] = [];
-    chipsUsed[chipKey].push({ gameweekId: gwId });
-
-    if (chipKey === '2capt') usedGws2capt.add(gwId);
-    if (chipKey === 'frush') usedGwsFrush.add(gwId);
-  }
-
-  // 2) Beregn points for chips som trenger det ved å bruke picks-endpoint
-  const pointsByChip: {
-    '2capt': Array<{ gameweekId: number; points: number }>;
-    frush: Array<{ gameweekId: number; points: number }>;
-  } = { '2capt': [], frush: [] };
-
-  // 2capt: cap + vice (vanlige points, ingen dobling)
-  for (const gwId of Array.from(usedGws2capt).sort((a, b) => a - b)) {
-    try {
-      const picksJson = await fetchJson<{ picks?: unknown }>(
-        `${baseUrl}/api/entry/${entryId}/event/${gwId}/picks/`
-      );
-      const picks = Array.isArray(picksJson?.picks) ? (picksJson.picks as any[]) : [];
-
-      const cap = picks.find((p) => p?.is_captain === true) ?? null;
-      const vice = picks.find((p) => p?.is_vice_captain === true) ?? null;
-
-      const capId = cap ? Number(cap.element) : null;
-      const viceId = vice ? Number(vice.element) : null;
-
-      const capPts =
-        capId != null && Number.isFinite(capId) ? await getPlayerPointsCached(capId, gwId) : 0;
-      const vicePts =
-        viceId != null && Number.isFinite(viceId) ? await getPlayerPointsCached(viceId, gwId) : 0;
-
-      const sum = capPts + vicePts;
-
-      pointsByChip['2capt'].push({ gameweekId: gwId, points: sum });
-
-      const rec = chipsUsed['2capt']?.find((x) => x.gameweekId === gwId);
-      if (rec) rec.points = sum;
-    } catch {
-      // ignorer hvis API ikke svarer / entry mangler picks
-    }
-  }
-
-  // frush: alle forwards i start-XI (pos 1-11) -> sum vanlige points
-  for (const gwId of Array.from(usedGwsFrush).sort((a, b) => a - b)) {
-    try {
-      const picksJson = await fetchJson<{ picks?: unknown }>(
-        `${baseUrl}/api/entry/${entryId}/event/${gwId}/picks/`
-      );
-      const picks = Array.isArray(picksJson?.picks) ? (picksJson.picks as any[]) : [];
-
-      const xi = picks.filter((p) => Number(p?.position) >= 1 && Number(p?.position) <= 11);
-
-      const forwards = xi.filter((p) => {
-        // picks-endpoint har element_type (jf smoke test)
-        const et = Number(p?.element_type);
-        if (Number.isFinite(et)) return et === 4;
-
-        // fallback til DB (shouldn't normally happen)
-        const pid = Number(p?.element);
-        const posId = positionByPlayerId.get(pid) ?? -1;
-        return posId === 4;
-      });
-
-      let sum = 0;
-      for (const p of forwards) {
-        const pid = Number(p?.element);
-        if (!Number.isFinite(pid)) continue;
-        sum += await getPlayerPointsCached(pid, gwId);
-      }
-
-      pointsByChip.frush.push({ gameweekId: gwId, points: sum });
-
-      const rec = chipsUsed.frush?.find((x) => x.gameweekId === gwId);
-      if (rec) rec.points = sum;
-    } catch {
-      // ignorer hvis API ikke svarer / entry mangler picks
-    }
-  }
-
-  const notUsed = Array.from(knownChipKeys).filter(
-    (k) => !chipsUsed[k] || chipsUsed[k].length === 0
-  );
+    usedGameweeks: gwCount,
+  };
 
   const chips = {
-    used: chipsUsed,
+    used,
     notUsed,
     pointsByChip,
+    baseline: baselineChips
+      ? {
+          totalUsed: baselineChips.totalUsed ?? {},
+          usedThisGw: baselineChips.usedThisGw ?? {},
+          usedThisGwRate: baselineChips.usedThisGwRate ?? {},
+          sampleSize:
+            typeof baselineCoverage?.sampleSize === 'number'
+              ? baselineCoverage.sampleSize
+              : (bracketStats?.sampleSize ?? null),
+          points: baselineChips.points ?? null,
+        }
+      : null,
+  };
+
+  const insights = {
+    captain,
+    risk: { byGameweek: [], summary: riskSummary },
+    points: { byGameweek: [], summary: pointsSummary },
+    chips,
   };
 
   const data = {
-    captain: {
-      threshold,
-      returns5Plus,
-      usedGameweeks,
-      missingPointsGameweeks,
-      missingCaptainGameweeks: 0,
-      totalFinishedGameweeksWithPicks: entryGws.length,
-      assumedZeroCaptainPlayers,
-      assumedZeroCaptainGameweeks,
-      baseline: {
-        expectedReturns5Plus: expectedReturns5Plus,
-        avgSuccessRate5Plus: avgSuccessRate5Plus,
-        usedGameweeks: baselineReturnsUsedGameweeks,
-        missingGameweeks: baselineReturnsMissingGameweeks,
+    insights,
+    meta: {
+      computedThroughGw,
+      overallRankNow,
+      bracket: bracket
+        ? { id: bracket.id, name: bracket.name, rankFrom: bracket.rankFrom, rankTo: bracket.rankTo }
+        : null,
+      entrySeasonTotals: {
+        lastUpdatedGw: totals?.lastUpdatedGw ?? 0,
+        gwCount,
       },
-      diff: {
-        returns5Plus: returns5PlusDiff,
-      },
-      topCaptains,
+      bracketStats: bracketStats
+        ? {
+            bracketId: bracketStats.bracketId,
+            computedThroughGameweekId: bracketStats.computedThroughGameweekId,
+            version: bracketStats.version,
+            sampleSize: bracketStats.sampleSize,
+          }
+        : null,
     },
-    risk: {
-      byGameweek: riskByGameweek,
-      summary: {
-        avgCaptainShare,
-        avgBaselineCaptainEO,
-        captainShareDiff,
-
-        avgTeamEO,
-        avgBaselineTeamEO,
-        teamEODiff,
-
-        avgUserTransferCost,
-        avgBaselineTransferCost,
-        transferCostDiff,
-        userHitRate,
-        baselineHitRate,
-
-        usedGameweeks: riskByGameweek.length,
-      },
-    },
-    points: {
-      byGameweek: pointsByGameweek,
-      summary: {
-        avgUserCaptainPoints,
-        avgBaselineCaptainPoints,
-        captainPointsDiff,
-
-        avgUserByPosition,
-        avgBaselineByPosition,
-        byPositionDiff,
-
-        avgUserXI,
-        avgBaselineXI,
-        xiDiff,
-
-        usedGameweeks: pointsByGameweek.length,
-      },
-    },
-    chips,
   };
 
   await prisma.entryInsights.upsert({
     where: { entryId },
-    create: { entryId, computedThroughGameweekId, version: 3, data },
-    update: { entryId, computedThroughGameweekId, version: 3, data, computedAt: new Date() },
+    create: { entryId, computedThroughGameweekId: computedThroughGw, version: 6, data },
+    update: {
+      computedThroughGameweekId: computedThroughGw,
+      version: 6,
+      data,
+      computedAt: new Date(),
+    },
   });
 
   return data;

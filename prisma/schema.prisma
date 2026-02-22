@@ -1,5 +1,4 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
+// prisma/schema.prisma
 
 generator client {
   provider = "prisma-client-js"
@@ -67,9 +66,8 @@ model Gameweek {
   effectiveOwnership EffectiveOwnership[]
   entries EntryGameweek[]
   playerStats PlayerGameweekStats[]
-  bracketStats BracketGameweekStats[]
   chipUsages ChipUsage[]
-
+  bracketStats BracketStats[] @relation("BracketStatsComputedThrough")
 
   @@index([deadlineTime])
   @@index([finished])
@@ -78,83 +76,73 @@ model Gameweek {
 model Bracket {
   id        Int      @id @default(autoincrement())
 
-  /// F.eks. "Top 1k", "Top 10k"
+  /// F.eks. "1-100", "101-500", ...
   name      String
 
-  /// Inkluderende rank-grenser (du bestemmer semantikken, men vær konsekvent)
+  /// Inkluderende rank-grenser (disjunkte intervaller)
   rankFrom  Int
   rankTo    Int
 
-  /// Praktisk hvis du vil slå av/på brackets uten å slette
   active    Boolean  @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  effectiveOwnership EffectiveOwnership[]
-  gameweekStats BracketGameweekStats[]
-  chipUsages ChipUsage[]
-
+  stats BracketStats?
 
   @@unique([rankFrom, rankTo])
   @@index([active])
+}
+
+model BracketStats {
+  id        Int      @id @default(autoincrement())
+
+  bracketId Int  @unique
+  bracket   Bracket @relation(fields: [bracketId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  /// “Hvor langt” baseline gjelder (typisk siste finished GW)
+  computedThroughGameweekId Int
+  computedThroughGameweek   Gameweek @relation("BracketStatsComputedThrough", fields: [computedThroughGameweekId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  /// Bump når dere endrer beregningslogikk/format på data
+  version   Int      @default(1)
+
+  /// Hvor mange entries som inngikk i baseline (for debug/coverage)
+  sampleSize Int?
+
+  /// Ferdig baseline-data til UI (captain/pos/xi/hits/chips/risk osv)
+  data      Json
+
+  computedAt DateTime @default(now())
+
+  @@index([computedThroughGameweekId])
+  @@index([version])
 }
 
 model EffectiveOwnership {
   id           Int      @id @default(autoincrement())
 
   gameweekId   Int
-  bracketId    Int
   playerId     Int
 
-  /// Anbefaling: 0.0–1.0 (fraction). Du kan alltid formatere til percent i UI.
+  /// 0.0–1.0 (fraction)
   eo           Float
 
-  /// Hvor mange entries i denne bracketen som er med i samplet
+  /// Hvor mange entries som inngikk i template-samplet (typisk 1000)
   sampleSize   Int
 
-  /// Valgfritt, men nyttig for debug / forklaring
   ownedCount   Int?
   captainCount Int?
 
   computedAt   DateTime @default(now())
 
-  gameweek     Gameweek @relation(fields: [gameweekId], references: [id])
-  bracket      Bracket  @relation(fields: [bracketId], references: [id])
-  player       Player   @relation(fields: [playerId], references: [id])
+  gameweek     Gameweek @relation(fields: [gameweekId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  player       Player   @relation(fields: [playerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
-  @@unique([gameweekId, bracketId, playerId])
-  @@index([gameweekId, bracketId])
+  @@unique([gameweekId, playerId])
+  @@index([gameweekId])
   @@index([playerId])
 }
-
-
-model BracketGameweekStats {
-  id         Int      @id @default(autoincrement())
-
-  gameweekId Int
-  bracketId  Int
-
-  /// Øk når du endrer beregningslogikk / definisjon av feltene i `data`
-  version    Int      @default(1)
-
-  /// Hvor mange entries som inngikk i beregningen (typisk samme som EO sampleSize)
-  sampleSize Int?
-
-  /// Ferdig aggregerte baseline-tall for UI (EO/captain/teamEO/hits/chips/points osv)
-  data       Json
-
-  computedAt DateTime @default(now())
-
-  gameweek   Gameweek @relation(fields: [gameweekId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  bracket    Bracket  @relation(fields: [bracketId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-
-  @@unique([gameweekId, bracketId, version])
-  @@index([gameweekId])
-  @@index([bracketId])
-}
-
-
 
 model Entry {
   /// ID fra fantasy-spillet (entry id)
@@ -179,6 +167,7 @@ model Entry {
   gameweeks EntryGameweek[]
   chipUsages ChipUsage[]
   insights  EntryInsights?
+  seasonTotals EntrySeasonTotals?
 
   @@index([entryName])
   @@index([playerName])
@@ -193,7 +182,6 @@ model EntryGameweek {
 
   fetchedAt  DateTime @default(now())
 
-  /// Liten subset fra entry_history (fra picks-endpointet)
   points             Int?
   totalPoints        Int?
   overallRank        Int?
@@ -238,15 +226,9 @@ model EntryInsights {
 
   entryId   Int      @unique
 
-  /// “Hvor langt” computed gjelder (typisk siste finished GW vi har komplett for)
   computedThroughGameweekId Int
-
-  /// Bump når du endrer beregningslogikk
   version   Int      @default(1)
-
-  /// Ferdig “produkt” til UI (captain/teamcomp/playstyle)
   data      Json
-
   computedAt DateTime @default(now())
 
   entry     Entry     @relation(fields: [entryId], references: [id], onDelete: Cascade, onUpdate: Cascade)
@@ -260,7 +242,6 @@ model PlayerGameweekStats {
   playerId   Int
   gameweekId Int
 
-  /// Aggregert per round (dobbeltrunde => sum)
   fixtureCount Int @default(0)
 
   totalPoints Int @default(0)
@@ -291,35 +272,63 @@ model PlayerGameweekStats {
 model ChipUsage {
   id         Int      @id @default(autoincrement())
 
-  /// ID fra fantasy-spillet (entry id)
   entryId    Int
   entry      Entry    @relation(fields: [entryId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
-  /// ID fra fantasy-spillet (events.id)
   gameweekId Int
   gameweek   Gameweek @relation(fields: [gameweekId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
-  /// Bracketen entryen tilhørte når chip ble registrert (fra EO-scriptet)
-  bracketId  Int
-  bracket    Bracket  @relation(fields: [bracketId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-
-  /// chips[].name (f.eks. "2capt", "bboost")
   chipName   String
-
-  /// Chip-poeng fylles av points-scriptet etter at runden er ferdig.
-  /// NULL = ikke beregnet enda (0 er en gyldig score).
   points     Int?
-
-  /// chips[].time (kan være nyttig for debug)
   usedAt     DateTime?
 
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
   @@unique([entryId, gameweekId, chipName])
-  @@index([gameweekId, bracketId])
+  @@index([gameweekId])
   @@index([entryId])
   @@index([chipName])
 }
 
+model EntrySeasonTotals {
+  id        Int @id @default(autoincrement())
+
+  entryId   Int @unique
+  entry     Entry @relation(fields: [entryId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  lastUpdatedGw Int @default(0)
+  gwCount       Int @default(0)
+
+  captainPointsTotal Int @default(0)
+
+  xiGkpPointsTotal Int @default(0)
+  xiDefPointsTotal Int @default(0)
+  xiMidPointsTotal Int @default(0)
+  xiFwdPointsTotal Int @default(0)
+
+  transferCostTotal Int @default(0)
+  hitCount          Int @default(0)
+
+  captainSuccess5PlusCount Int  @default(0)
+  captainTop3Json          Json @default("[]")
+
+  xiGkpCountTotal Int @default(0)
+  xiDefCountTotal Int @default(0)
+  xiMidCountTotal Int @default(0)
+  xiFwdCountTotal Int @default(0)
+
+  // --- NEW: season-to-date EO playstyle ---
+  teamEOTotal   Float @default(0)  // sum av teamEO per GW
+  teamEOCount   Int   @default(0)  // antall GWs med full EO-coverage (se logikk)
+  captainEOTotal Float @default(0) // sum av captain EO per GW (EO * 2)
+  captainEOCount Int   @default(0) // antall GWs der captain EO finnes
+  captainShareTotal Float @default(0) // sum av captainShare per GW (captainCount/sampleSize)
+  captainShareCount Int   @default(0)  // antall GWs der captainShare finnes
+
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@index([lastUpdatedGw])
+}
 
