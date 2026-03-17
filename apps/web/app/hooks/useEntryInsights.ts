@@ -77,8 +77,8 @@ export type EntryInsightsResponse = {
         avgBaselineTransferCost?: number | null;
         transferCostDiff?: number | null;
 
-        userHitRate?: number | null;
-        baselineHitRate?: number | null;
+        userHitCount?: number | null;
+        baselineHitCount?: number | null;
 
         usedGameweeks?: number;
       };

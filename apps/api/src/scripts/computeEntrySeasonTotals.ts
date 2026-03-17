@@ -456,17 +456,28 @@ async function main() {
             const eoByPlayer = eoByGwAndPlayer.get(gw) ?? new Map();
 
             // captainEO + captainShare
-            const cap = picks.find((p) => p.is_captain);
-            if (cap) {
-              const capEO = eoByPlayer.get(cap.element);
-              if (capEO) {
-                captainEOTotal += capEO.eo * 2;
-                captainEOCount += 1;
+            // Finne alle kapteiner (ved chips kan det være flere)
+            const captains = picks.filter((p) => p.is_captain || (p.multiplier ?? 1) > 1);
+            if (captains.length > 0) {
+              let captainEOSum = 0;
+              let captainEOValidCount = 0;
 
-                if (capEO.captainCount != null && capEO.sampleSize > 0) {
-                  captainShareTotal += capEO.captainCount / capEO.sampleSize;
-                  captainShareCount += 1;
+              for (const cap of captains) {
+                const capEO = eoByPlayer.get(cap.element);
+                if (capEO) {
+                  captainEOSum += capEO.eo;
+                  captainEOValidCount += 1;
+
+                  if (capEO.captainCount != null && capEO.sampleSize > 0) {
+                    captainShareTotal += capEO.captainCount / capEO.sampleSize;
+                    captainShareCount += 1;
+                  }
                 }
+              }
+
+              if (captainEOValidCount > 0) {
+                captainEOTotal += captainEOSum / captainEOValidCount; // Gjennomsnitt
+                captainEOCount += 1;
               }
             }
 
@@ -484,7 +495,7 @@ async function main() {
                 break;
               }
 
-              teamEOThisGw += row.eo * m;
+              teamEOThisGw += row.eo; // Ingen multiplier - bare summen av EO-verdiene
             }
 
             if (ok) {

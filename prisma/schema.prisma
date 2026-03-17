@@ -9,6 +9,18 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum JobType {
+  DEADLINE
+  FINISHED_CHECK
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  DONE
+  FAILED
+}
+
 model Team {
   /// ID fra fantasy-spillet (teams.id)
   id Int @id
@@ -68,9 +80,36 @@ model Gameweek {
   playerStats PlayerGameweekStats[]
   chipUsages ChipUsage[]
   bracketStats BracketStats[] @relation("BracketStatsComputedThrough")
+  scheduledJobs JobSchedule[]
 
   @@index([deadlineTime])
   @@index([finished])
+}
+
+model JobSchedule {
+  id Int @id @default(autoincrement())
+
+  gameweekId Int
+  gameweek   Gameweek @relation(fields: [gameweekId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  jobType    JobType
+  status     JobStatus @default(PENDING)
+
+  targetTime DateTime
+  attempts   Int @default(0)
+
+  startedAt  DateTime?
+  finishedAt DateTime?
+  lockedAt   DateTime?
+
+  lastError  String?
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([gameweekId, jobType])
+  @@index([status, targetTime])
+  @@index([gameweekId])
 }
 
 model Bracket {

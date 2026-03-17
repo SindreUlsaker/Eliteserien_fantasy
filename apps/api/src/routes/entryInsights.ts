@@ -23,8 +23,8 @@ export default async function entryInsightsRoutes(
       const entryId = toInt(request.params.entryId);
       if (!entryId) return reply.code(400).send({ error: 'Invalid entryId' });
 
-      // hvis entry ikke finnes i DB, så lar vi computeEntryInsights sørge for upsert.
-
+      // Henter alltid fersk data fra Eliteserie API + beregner insights.
+      // computeEntryInsights vil upserte entry, entrySeasonTotals og entryInsights til DB.
       const data = await computeEntryInsights(prisma, entryId);
 
       // Cache litt

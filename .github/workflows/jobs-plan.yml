@@ -1,0 +1,42 @@
+name: Plan Scheduled Jobs
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: jobs-plan
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Plan jobs
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      OVERALL_LEAGUE_ID: ${{ secrets.OVERALL_LEAGUE_ID }}
+      ESF_BASE_URL: ${{ secrets.ESF_BASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma Client
+        run: pnpm db:generate
+
+      - name: Apply database migrations
+        run: npx prisma migrate deploy --schema=prisma/schema.prisma
+
+      - name: Plan scheduled jobs
+        run: pnpm --filter api jobs:plan

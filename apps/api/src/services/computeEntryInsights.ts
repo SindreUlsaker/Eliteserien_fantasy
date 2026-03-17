@@ -273,11 +273,27 @@ async function ensureEntrySeasonTotalsUpToDate(
     if (cap) {
       const capEO = eoByPlayer.get(cap.element);
       if (capEO) {
-        captainEOTotal += capEO.eo;
-        captainEOCount += 1;
-        if (capEO.captainCount != null && capEO.sampleSize > 0) {
-          captainShareTotal += capEO.captainCount / capEO.sampleSize;
-          captainShareCount += 1;
+        // Hvis flere kapteiner (ved chips), ta gjennomsnittet av deres EO
+        const captains = picks.filter((p) => p.is_captain || (p.multiplier ?? 1) > 1);
+        let captainEOSum = 0;
+        let captainEOValidCount = 0;
+
+        for (const c of captains) {
+          const cEO = eoByPlayer.get(c.element);
+          if (cEO) {
+            captainEOSum += cEO.eo;
+            captainEOValidCount += 1;
+
+            if (cEO.captainCount != null && cEO.sampleSize > 0) {
+              captainShareTotal += cEO.captainCount / cEO.sampleSize;
+              captainShareCount += 1;
+            }
+          }
+        }
+
+        if (captainEOValidCount > 0) {
+          captainEOTotal += captainEOSum / captainEOValidCount; // Gjennomsnitt
+          captainEOCount += 1;
         }
       }
     }
@@ -292,7 +308,7 @@ async function ensureEntrySeasonTotalsUpToDate(
         ok = false;
         break;
       }
-      teamEOThisGw += row.eo * m;
+      teamEOThisGw += row.eo; // Ingen multiplier - bare summen av EO-verdiene
     }
     if (ok) {
       teamEOTotal += teamEOThisGw;
@@ -492,7 +508,6 @@ export async function computeEntryInsights(prisma: PrismaClient, entryId: number
         }
       : null;
 
-  const userHitRate = gwCount > 0 ? (totals?.hitCount ?? 0) / gwCount : null;
   const userAvgTransferCost = gwCount > 0 ? (totals?.transferCostTotal ?? 0) / gwCount : null;
 
   // --- overallRank now (at computedThroughGw)
@@ -561,6 +576,10 @@ export async function computeEntryInsights(prisma: PrismaClient, entryId: number
   const baselineHitRate = baseline?.risk?.hitRate != null ? Number(baseline.risk.hitRate) : null;
   const baselineAvgTransferCost =
     baseline?.risk?.avgTransferCost != null ? Number(baseline.risk.avgTransferCost) : null;
+
+  // Hit counts (for slider and UI)
+  const userHitCount = totals?.hitCount ?? 0;
+  const baselineHitCount = baselineHitRate != null ? baselineHitRate * gwCount : null;
 
   const baselineAvgTeamEO =
     baseline?.risk?.avgTeamEO != null ? Number(baseline.risk.avgTeamEO) : null;
@@ -733,8 +752,8 @@ export async function computeEntryInsights(prisma: PrismaClient, entryId: number
         ? userAvgTransferCost - baselineAvgTransferCost
         : null,
 
-    userHitRate,
-    baselineHitRate,
+    userHitCount,
+    baselineHitCount,
 
     usedGameweeks: gwCount,
   };

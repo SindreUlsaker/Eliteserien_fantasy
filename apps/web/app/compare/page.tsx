@@ -12,21 +12,33 @@ function clamp(v: number, min: number, max: number) {
   return Math.max(min, Math.min(max, v));
 }
 
-function posCaptainOrTeam(userValue: number | null, baselineValue: number | null) {
-  if (userValue == null || baselineValue == null || baselineValue === 0) return null;
-  const ratio = userValue / baselineValue;
-  // Midten er 0.5 (ratio 1.0 = likt som baseline)
-  // Med ratio 0.5–2.0 som normale bounds:
-  // Mappes til slider 0.0–1.0 lineært
-  const p = (ratio - 0.5) / 1.5; // 0.5->0, 1.0->0.33, 2.0->1.0
-  return clamp(p, 0, 1);
-}
+function posCaptainOrTeam(
+  userValue: number | null,
+  baselineValue: number | null,
+  maxValue: number
+) {
+  if (userValue == null || baselineValue == null) return null;
 
-function posHits(diff: number | null, span: number) {
-  if (diff == null) return null;
-  const normalized = diff / span;
-  const p = 0.5 + normalized * 0.5;
-  return clamp(p, 0, 1);
+  const minValue = 0;
+
+  // Hold alt innenfor [0, maxValue]
+  const u = clamp(userValue, minValue, maxValue);
+  const b = clamp(baselineValue, minValue, maxValue);
+
+  // Midten (0.5) = baseline (bracket-snitt)
+  // Venstre halvdel: [baseline .. max]  -> [0.5 .. 0.0]
+  // Høyre halvdel:   [0 .. baseline]   -> [1.0 .. 0.5]
+  if (u >= b) {
+    const denom = maxValue - b;
+    if (denom <= 1e-9) return 0.5; // baseline ~ max, kan ikke skalere venstresiden
+    const t = (u - b) / denom; // 0..1
+    return clamp(0.5 - 0.5 * t, 0, 1);
+  } else {
+    const denom = b - minValue; // = b
+    if (denom <= 1e-9) return 0.5; // baseline ~ 0, kan ikke skalere høyresiden
+    const t = (b - u) / denom; // 0..1
+    return clamp(0.5 + 0.5 * t, 0, 1);
+  }
 }
 
 function tiltFromPos(pos: number | null): Tilt {
@@ -615,13 +627,29 @@ export default function ComparePage() {
                 {(() => {
                   const captainPos = posCaptainOrTeam(
                     riskSummary.avgUserCaptainEO ?? null,
-                    riskSummary.avgBaselineCaptainEO ?? null
+                    riskSummary.avgBaselineCaptainEO ?? null,
+                    2.0
                   );
                   const teamPos = posCaptainOrTeam(
                     riskSummary.avgTeamEO ?? null,
-                    riskSummary.avgBaselineTeamEO ?? null
+                    riskSummary.avgBaselineTeamEO ?? null,
+                    10.0
                   );
-                  const hitsPos = posHits(riskSummary.transferCostDiff ?? null, 1.0);
+                  const userHits = riskSummary.userHitCount ?? null;
+                  const baseHits = riskSummary.baselineHitCount;
+                  let hitsPos: number | null = null;
+                  if (userHits != null && baseHits != null) {
+                    if (userHits <= baseHits) {
+                      // Venstre side: 0 hits (helt venstre) til baseHits (midten)
+                      const t = baseHits > 0 ? userHits / baseHits : 0;
+                      hitsPos = 0.5 * t;
+                    } else {
+                      // Høyre side: baseHits (midten) til max(2, 2*baseHits) (helt høyre)
+                      const maxHits = Math.max(2, 2 * baseHits);
+                      const t = (userHits - baseHits) / (maxHits - baseHits);
+                      hitsPos = 0.5 + 0.5 * Math.min(t, 1);
+                    }
+                  }
                   const tilts = {
                     captain: tiltFromPos(captainPos),
                     team: tiltFromPos(teamPos),
@@ -705,26 +733,26 @@ export default function ComparePage() {
 
                       <div className="compare-kpis" style={{ marginTop: 14 }}>
                         <div className="compare-kpi">
-                          <div className="compare-kpi-label">Hits-rate</div>
+                          <div className="compare-kpi-label">Hits</div>
                           <div className="compare-kpi-value-row">
                             <div className="compare-kpi-value">
-                              {riskSummary.userHitRate == null ? '—' : pct(riskSummary.userHitRate)}
+                              {riskSummary.userHitCount == null
+                                ? '—'
+                                : Math.round(riskSummary.userHitCount)}
                             </div>
                           </div>
-                          <div className="compare-kpi-sub">
-                            Andel runder med hits (season-to-date).
-                          </div>
+                          <div className="compare-kpi-sub">Antall hits (season-to-date).</div>
                         </div>
                         <div className="compare-kpi">
                           <div className="compare-kpi-label">Bracket-snitt</div>
                           <div className="compare-kpi-value-row">
                             <div className="compare-kpi-value">
-                              {riskSummary.baselineHitRate == null
+                              {riskSummary.baselineHitCount == null
                                 ? '—'
-                                : pct(riskSummary.baselineHitRate)}
+                                : fmt(riskSummary.baselineHitCount, 1)}
                             </div>
                           </div>
-                          <div className="compare-kpi-sub">Hits-rate for din bracket.</div>
+                          <div className="compare-kpi-sub">Snitt antall hits i din bracket.</div>
                         </div>
                       </div>
                     </>
