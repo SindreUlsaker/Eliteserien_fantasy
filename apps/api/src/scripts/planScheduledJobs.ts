@@ -4,7 +4,12 @@ const prisma = new PrismaClient();
 
 const BASE_URL = process.env.ESF_BASE_URL ?? 'https://en.fantasy.eliteserien.no';
 const DEADLINE_OFFSET_MINUTES = Number(process.env.JOB_DEADLINE_OFFSET_MINUTES ?? 5);
-const FINISHED_CHECK_DELAY_HOURS = Number(process.env.JOB_FINISHED_CHECK_DELAY_HOURS ?? 24);
+const FINISHED_CHECK_NEXT_DAY_HOUR_UTC = Number(
+  process.env.JOB_FINISHED_CHECK_NEXT_DAY_HOUR_UTC ?? 8
+);
+const FINISHED_CHECK_NEXT_DAY_MINUTE_UTC = Number(
+  process.env.JOB_FINISHED_CHECK_NEXT_DAY_MINUTE_UTC ?? 0
+);
 
 type BootstrapEvent = {
   id: number;
@@ -37,8 +42,18 @@ function addMinutes(base: Date, minutes: number): Date {
   return new Date(base.getTime() + minutes * 60_000);
 }
 
-function addHours(base: Date, hours: number): Date {
-  return new Date(base.getTime() + hours * 3_600_000);
+function nextDayAtUtc(base: Date, hourUtc: number, minuteUtc: number): Date {
+  return new Date(
+    Date.UTC(
+      base.getUTCFullYear(),
+      base.getUTCMonth(),
+      base.getUTCDate() + 1,
+      hourUtc,
+      minuteUtc,
+      0,
+      0
+    )
+  );
 }
 
 async function fetchJson<T>(path: string): Promise<T> {
@@ -209,7 +224,11 @@ async function main() {
 
     const lastKickoff = lastKickoffByEvent.get(event.id);
     const finishedCheckBase = lastKickoff ?? deadline;
-    const finishedCheckTarget = addHours(finishedCheckBase, FINISHED_CHECK_DELAY_HOURS);
+    const finishedCheckTarget = nextDayAtUtc(
+      finishedCheckBase,
+      FINISHED_CHECK_NEXT_DAY_HOUR_UTC,
+      FINISHED_CHECK_NEXT_DAY_MINUTE_UTC
+    );
 
     const finishedResult = await upsertScheduledJob(
       event.id,
