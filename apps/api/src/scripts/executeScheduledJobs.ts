@@ -6,7 +6,7 @@ const prisma = new PrismaClient();
 
 const BASE_URL = process.env.ESF_BASE_URL ?? 'https://en.fantasy.eliteserien.no';
 const JOB_BATCH_SIZE = Number(process.env.JOB_EXECUTOR_BATCH_SIZE ?? 5);
-const ROUND_CHECK_RETRY_MINUTES = Number(process.env.ROUND_CHECK_RETRY_MINUTES ?? 30);
+const ROUND_CHECK_RETRY_MINUTES = Number(process.env.ROUND_CHECK_RETRY_MINUTES ?? 60);
 
 function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null;

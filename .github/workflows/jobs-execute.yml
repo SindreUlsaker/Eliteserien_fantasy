@@ -2,7 +2,7 @@ name: Execute Scheduled Jobs
 
 on:
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: '5 8-22 * * *'
   workflow_dispatch:
 
 concurrency:
@@ -15,8 +15,10 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      DIRECT_URL: ${{ secrets.DIRECT_URL }}
       OVERALL_LEAGUE_ID: ${{ secrets.OVERALL_LEAGUE_ID }}
       ESF_BASE_URL: ${{ secrets.ESF_BASE_URL }}
+      ROUND_CHECK_RETRY_MINUTES: '60'
     steps:
       - uses: actions/checkout@v4
 
