@@ -79,6 +79,7 @@ jobs:
           - 5432:5432
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/eliteserien_fantasy?schema=public
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5432/eliteserien_fantasy?schema=public
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v2
@@ -93,6 +94,6 @@ jobs:
       - name: Generate Prisma Client
         run: pnpm db:generate
       - name: Run database migrations
-        run: pnpm db:migrate
+        run: npx prisma migrate deploy --schema=prisma/schema.prisma
       - name: Build applications
         run: pnpm build
