@@ -97,6 +97,7 @@ export type EntryInsightsResponse = {
         points?: {
           avg2captPoints: number | null;
           avgFrushPoints: number | null;
+          avgPdbusPoints: number | null;
         } | null;
       } | null;
     };

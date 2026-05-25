@@ -2,7 +2,7 @@ name: Execute Scheduled Jobs
 
 on:
   schedule:
-    - cron: '5 7-19 * * *'
+    - cron: '5 8-20 * * *'
   workflow_dispatch:
 
 concurrency:

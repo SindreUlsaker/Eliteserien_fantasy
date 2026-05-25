@@ -92,14 +92,16 @@ function canonicalChipKey(k: string): string {
   if (low === 'frush' || low === 'freehit' || low === 'spissrush') return 'frush';
   if (low === 'rich' || low === 'rik onkel' || low === 'rich_uncle') return 'rich';
   if (low === 'wildcard') return 'wildcard1';
+  if (low === 'pdbus' || low === 'parker bussen' || low === 'parker_bussen') return 'pdbus';
   return k;
 }
 
-function is2captOrFrush(chipName: string): '2capt' | 'frush' | null {
+function chipForPoints(chipName: string): '2capt' | 'frush' | 'pdbus' | null {
   const k = chipKey(chipName);
   if (k === '2capt' || k === '3xc' || k === 'triple_captain' || k.includes('kaptein'))
     return '2capt';
   if (k === 'frush' || k === 'freehit' || k === 'spissrush') return 'frush';
+  if (k === 'pdbus' || k === 'parker bussen' || k === 'parker_bussen') return 'pdbus';
   return null;
 }
 
@@ -159,7 +161,7 @@ async function main() {
         totalUsed: {},
         usedThisGw: {},
         usedThisGwRate: {},
-        points: { avg2captPoints: null, avgFrushPoints: null },
+        points: { avg2captPoints: null, avgFrushPoints: null, avgPdbusPoints: null },
       };
     }
 
@@ -174,6 +176,8 @@ async function main() {
     let count2capt = 0;
     let sumFrush = 0;
     let countFrush = 0;
+    let sumPdbus = 0;
+    let countPdbus = 0;
 
     for (const c of chips) {
       const k = chipKey(c.chipName);
@@ -185,14 +189,17 @@ async function main() {
         thisGwByChip.get(k)!.add(c.entryId);
       }
 
-      const pointsChip = is2captOrFrush(c.chipName);
+      const pointsChip = chipForPoints(c.chipName);
       if (pointsChip && typeof c.points === 'number' && Number.isFinite(c.points)) {
         if (pointsChip === '2capt') {
           sum2capt += c.points;
           count2capt += 1;
-        } else {
+        } else if (pointsChip === 'frush') {
           sumFrush += c.points;
           countFrush += 1;
+        } else {
+          sumPdbus += c.points;
+          countPdbus += 1;
         }
       }
     }
@@ -214,6 +221,7 @@ async function main() {
     const points = {
       avg2captPoints: count2capt > 0 ? sum2capt / count2capt : null,
       avgFrushPoints: countFrush > 0 ? sumFrush / countFrush : null,
+      avgPdbusPoints: countPdbus > 0 ? sumPdbus / countPdbus : null,
     };
 
     return { totalUsed, usedThisGw, usedThisGwRate, points };

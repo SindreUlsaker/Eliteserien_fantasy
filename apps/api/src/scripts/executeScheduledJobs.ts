@@ -91,7 +91,7 @@ async function isRoundClosed(gameweekId: number): Promise<boolean> {
 async function runDeadlineFlow(gameweekId: number): Promise<void> {
   await runPnpmScript('data:sync-gameweeks');
   await runPnpmScript('sync:entries');
-  await runPnpmScript('compute:template-eo', ['--', String(gameweekId)]);
+  await runPnpmScript('compute:template-eo', [String(gameweekId)]);
 }
 
 async function runFinishedFlow(gameweekId: number): Promise<void> {
@@ -104,8 +104,8 @@ async function runFinishedFlow(gameweekId: number): Promise<void> {
 
   await runPnpmScript('sync:entries');
   await runPnpmScript('data:sync-player-gw-stats');
-  await runPnpmScript('compute:entry-season-totals', ['--', String(gameweekId)]);
-  await runPnpmScript('compute:bracket-stats-snapshot', ['--', String(gameweekId)]);
+  await runPnpmScript('compute:entry-season-totals', [String(gameweekId)]);
+  await runPnpmScript('compute:bracket-stats-snapshot', [String(gameweekId)]);
 }
 
 async function processJob(jobId: number) {

@@ -172,7 +172,7 @@ async function main() {
   const gw = Number(gwRaw);
   if (!gwRaw || !Number.isFinite(gw) || gw <= 0) {
     throw new Error(
-      `Usage: computeTemplateEO <gameweek>. Example: pnpm --filter api compute:template-eo -- 3`
+      `Usage: computeTemplateEO <gameweek>. Example: pnpm --filter api compute:template-eo 3`
     );
   }
 

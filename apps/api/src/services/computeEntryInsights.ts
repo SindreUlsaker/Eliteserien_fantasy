@@ -1,7 +1,7 @@
 // apps/api/src/services/computeEntryInsights.ts
 import { PrismaClient } from '@prisma/client';
 
-type NormalizedChipKey = 'wildcard1' | 'wildcard2' | '2capt' | 'frush' | 'rich' | string;
+type NormalizedChipKey = 'wildcard1' | 'wildcard2' | '2capt' | 'frush' | 'rich' | 'pdbus' | string;
 
 function normalizeChipName(chipName: string, gameweekId: number): NormalizedChipKey {
   if (chipName === 'wildcard') return gameweekId >= 16 ? 'wildcard2' : 'wildcard1';
@@ -55,7 +55,7 @@ function elementTypeKey(elementType: number): 'gkp' | 'def' | 'mid' | 'fwd' | 'u
   return 'unk';
 }
 
-function chipNameForPoints(normalized: string): '2capt' | 'frush' | null {
+function chipNameForPoints(normalized: string): '2capt' | 'frush' | 'pdbus' | null {
   const k = normalized.toLowerCase();
   if (
     k === '2capt' ||
@@ -66,6 +66,7 @@ function chipNameForPoints(normalized: string): '2capt' | 'frush' | null {
   )
     return '2capt';
   if (k === 'frush' || k === 'freehit' || k === 'spissrush') return 'frush';
+  if (k === 'pdbus' || k === 'parker bussen' || k === 'parker_bussen') return 'pdbus';
   return null;
 }
 
@@ -326,10 +327,14 @@ async function ensureEntrySeasonTotalsUpToDate(
         const capPts = cap ? (pts.get(`${gw}:${cap.element}`) ?? 0) : 0;
         const vicePts = vice ? (pts.get(`${gw}:${vice.element}`) ?? 0) : 0;
         chipPoints = capPts + vicePts;
-      } else {
+      } else if (pointsChip === 'frush') {
         const xi = picks.filter((p) => p.position >= 1 && p.position <= 11);
         const forwards = xi.filter((p) => elementTypeKey(p.element_type) === 'fwd');
         chipPoints = forwards.reduce((sum, p) => sum + (pts.get(`${gw}:${p.element}`) ?? 0), 0);
+      } else {
+        const xi = picks.filter((p) => p.position >= 1 && p.position <= 11);
+        const defenders = xi.filter((p) => elementTypeKey(p.element_type) === 'def');
+        chipPoints = defenders.reduce((sum, p) => sum + (pts.get(`${gw}:${p.element}`) ?? 0), 0);
       }
 
       await prisma.chipUsage.updateMany({
@@ -649,7 +654,14 @@ export async function computeEntryInsights(prisma: PrismaClient, entryId: number
     used[k].push({ gameweekId: c.gameweekId, points: c.points ?? null });
   }
 
-  const knownChips: NormalizedChipKey[] = ['wildcard1', 'wildcard2', '2capt', 'frush', 'rich'];
+  const knownChips: NormalizedChipKey[] = [
+    'wildcard1',
+    'wildcard2',
+    '2capt',
+    'frush',
+    'rich',
+    'pdbus',
+  ];
   const notUsed = knownChips.filter((k) => !used[k] || used[k].length === 0);
 
   const pointsByChip: Record<string, Array<{ gameweekId: number; points: number | null }>> = {};
