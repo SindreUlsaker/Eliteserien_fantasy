@@ -90,7 +90,7 @@ async function isRoundClosed(gameweekId: number): Promise<boolean> {
 
 async function runDeadlineFlow(gameweekId: number): Promise<void> {
   await runPnpmScript('data:sync-gameweeks');
-  await runPnpmScript('sync:entries');
+  await runPnpmScript('data:sync-players');
   await runPnpmScript('compute:template-eo', [String(gameweekId)]);
 }
 
@@ -102,6 +102,7 @@ async function runFinishedFlow(gameweekId: number): Promise<void> {
     throw new Error('ROUND_NOT_CLOSED_YET');
   }
 
+  await runPnpmScript('data:sync-players');
   await runPnpmScript('sync:entries');
   await runPnpmScript('data:sync-player-gw-stats');
   await runPnpmScript('compute:entry-season-totals', [String(gameweekId)]);

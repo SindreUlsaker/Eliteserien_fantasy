@@ -450,7 +450,20 @@ async function main() {
 
         for (const gw of missingGwIds) {
           const picksUrl = `${BASE_URL}/api/entry/${entryId}/event/${gw}/picks/`;
-          const data = await fetchJsonWithRetry<PicksResponse>(picksUrl, fetchOpts);
+
+          let data: PicksResponse;
+          try {
+            data = await fetchJsonWithRetry<PicksResponse>(picksUrl, fetchOpts);
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            // Entry didn't exist at this GW (manager joined later). Advance the
+            // cursor so we don't keep retrying this GW on every future run.
+            if (msg.startsWith('HTTP 404')) {
+              lastSuccessfulGw = gw;
+              continue;
+            }
+            throw e;
+          }
           const picks = Array.isArray(data.picks) ? data.picks : [];
 
           {
