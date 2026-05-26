@@ -130,6 +130,20 @@ async function main() {
 
   console.log(`computeBracketStatsSnapshot: computedThroughGw=${computedThroughGw}`);
 
+  // Refuse to regress: if any existing BracketStats row was already computed
+  // through a later GW, running this snapshot would overwrite newer data with
+  // older. Fail loudly so backlogged jobs don't silently corrupt state.
+  const maxExisting = await prisma.bracketStats.aggregate({
+    _max: { computedThroughGameweekId: true },
+  });
+  const existingThrough = maxExisting._max.computedThroughGameweekId ?? 0;
+  if (existingThrough > computedThroughGw) {
+    throw new Error(
+      `Refusing to regress BracketStats: existing snapshot is computedThroughGw=${existingThrough}, ` +
+        `requested gw=${computedThroughGw}. Pass a gw >= ${existingThrough} or clear BracketStats first.`
+    );
+  }
+
   const brackets = await prisma.bracket.findMany({
     where: { active: true },
     orderBy: { rankFrom: 'asc' },
