@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useUser } from './user-context';
 import { OverallRankCard } from './overall-rank-card';
+import { useEntryInsights } from './hooks/useEntryInsights';
 import { useEntryTeam, PlayerPickView } from './hooks/useEntryTeam';
 
 type EntryHit = {
@@ -124,6 +125,11 @@ function TeamSection({ title, list }: { title: string; list: PlayerPickView[] })
 
 export default function HomePage() {
   const { selectedEntry, setSelectedEntry, isLoading } = useUser();
+
+  // Prefetch insights så /compare er snappere når brukeren navigerer dit.
+  // Returverdien brukes ikke her — Cache-Control: max-age=30 på API-svaret
+  // gjør at /compare-mounten serveres fra browser-cachen.
+  useEntryInsights(selectedEntry?.id ?? null);
 
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState<EntryHit[]>([]);
