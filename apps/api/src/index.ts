@@ -1,6 +1,7 @@
 import Fastify, { FastifyInstance } from 'fastify';
 import { PrismaClient } from '@prisma/client';
 import cors from '@fastify/cors';
+import rateLimit from '@fastify/rate-limit';
 import healthRoutes from './routes/health';
 import entriesRoutes from './routes/entries';
 import { entryHistoryRoutes } from './routes/entryHistory';
@@ -22,11 +23,28 @@ const server: FastifyInstance = Fastify({
           }
         : undefined,
   },
+  // Stol på X-Forwarded-For ett hopp (Vercel/Fly/etc terminerer TLS foran oss),
+  // slik at rate-limiteren ser klientens IP og ikke proxy-IP.
+  trustProxy: 1,
 });
 
-// CORS (tillat web-appen å kalle API-et lokalt)
+// CORS: les allowlist fra env (komma-separert). Fallback til localhost for
+// lokal dev. Eksempel i prod: CORS_ORIGINS=https://eliteserien-fantasy.vercel.app
+const corsOrigins = (process.env.CORS_ORIGINS ?? 'http://localhost:3000')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
 server.register(cors, {
-  origin: ['http://localhost:3000'],
+  origin: corsOrigins,
+});
+
+// Rate limiting — globalt tak per IP. /health skippes (uptime-monitorer m.m.).
+server.register(rateLimit, {
+  max: 60,
+  timeWindow: '1 minute',
+  skipOnError: false,
+  allowList: (req) => req.url.startsWith('/health'),
 });
 
 // Register routes
