@@ -210,7 +210,8 @@ function FormationBars({
 
 export default function ComparePage() {
   const { selectedEntry, entryId, isLoading } = useUser();
-  const { data, loading, error } = useEntryInsights(entryId ?? null);
+  const [selectedBracketId, setSelectedBracketId] = useState<number | null>(null);
+  const { data, loading, error } = useEntryInsights(entryId ?? null, selectedBracketId);
 
   const [bracketHelpOpen, setBracketHelpOpen] = useState(false);
 
@@ -221,6 +222,9 @@ export default function ComparePage() {
 
   const meta = data?.meta ?? null;
   const bracketMeta = meta?.bracket ?? null;
+  const naturalBracketId = meta?.naturalBracket?.id ?? bracketMeta?.id ?? null;
+  const availableBrackets = meta?.availableBrackets ?? [];
+  const currentBracketValue: number | '' = selectedBracketId ?? naturalBracketId ?? '';
 
   const bracketExplainer = useMemo(() => {
     return [
@@ -239,6 +243,8 @@ export default function ComparePage() {
       '• 7001–10000',
       '',
       '“Bracket-snitt” i kortene er season-to-date snitt for lagene som ligger i samme bracket som deg nå.',
+      '',
+      'Du kan også velge en annen bracket fra menyen over for å sammenligne deg med et annet rank-intervall. Tallene oppdateres umiddelbart.',
       '',
     ].join('\n');
   }, []);
@@ -268,15 +274,47 @@ export default function ComparePage() {
           </div>
         </div>
 
-        {bracketMeta && (
-          <div className="muted" style={{ marginTop: 6 }}>
-            Du sammenlignes med bracket: <b>{bracketMeta.name}</b>
-            {meta?.overallRankNow != null ? (
-              <>
-                {' '}
-                · Overall rank: <b>{meta.overallRankNow}</b>
-              </>
-            ) : null}
+        {availableBrackets.length > 0 && (
+          <div
+            className="compare-bracket-row"
+            style={{
+              marginTop: 6,
+              display: 'flex',
+              gap: 12,
+              alignItems: 'center',
+              flexWrap: 'wrap',
+            }}
+          >
+            <label className="muted" htmlFor="bracket-select">
+              Sammenlign med bracket:
+            </label>
+            <select
+              id="bracket-select"
+              className="input"
+              style={{ width: 'auto', minWidth: 220 }}
+              value={currentBracketValue === '' ? '' : String(currentBracketValue)}
+              onChange={(e) => {
+                const v = e.target.value;
+                setSelectedBracketId(v === '' ? null : Number(v));
+              }}
+            >
+              {naturalBracketId == null && (
+                <option value="" disabled>
+                  Velg bracket…
+                </option>
+              )}
+              {availableBrackets.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                  {b.id === naturalBracketId ? ' (din bracket)' : ''}
+                </option>
+              ))}
+            </select>
+            {meta?.overallRankNow != null && (
+              <span className="muted">
+                Overall rank: <b>{meta.overallRankNow}</b>
+              </span>
+            )}
           </div>
         )}
       </header>
@@ -300,9 +338,7 @@ export default function ComparePage() {
             {loading && <div className="muted">Laster…</div>}
             {error && <div className="error">Feil: {error}</div>}
 
-            {!loading && !error && !pointsSummary && (
-              <div className="muted">Ingen data ennå. (Sjekk at EntryInsights er oppdatert.)</div>
-            )}
+            {!loading && !error && !pointsSummary && <div className="muted">Laster…</div>}
 
             {!loading && !error && pointsSummary && (
               <>
@@ -321,7 +357,6 @@ export default function ComparePage() {
                         </span>
                       </span>
                     </div>
-                    <div className="compare-kpi-sub">Snitt per runde (season-to-date).</div>
                   </div>
 
                   <div className="compare-kpi">
@@ -331,7 +366,6 @@ export default function ComparePage() {
                         {fmt(pointsSummary.avgBaselineCaptainPoints, 2)}
                       </div>
                     </div>
-                    <div className="compare-kpi-sub">Snitt for lag i samme bracket nå.</div>
                   </div>
                 </div>
 
@@ -414,9 +448,7 @@ export default function ComparePage() {
             {loading && <div className="muted">Laster…</div>}
             {error && <div className="error">Feil: {error}</div>}
 
-            {!loading && !error && !pointsSummary && (
-              <div className="muted">Ingen data ennå. (Sjekk at EntryInsights er oppdatert.)</div>
-            )}
+            {!loading && !error && !pointsSummary && <div className="muted">Laster…</div>}
 
             {!loading && !error && pointsSummary && (
               <>
@@ -487,9 +519,6 @@ export default function ComparePage() {
                     bracket={pointsSummary.avgBaselineXI}
                     ariaLabel="Formasjon sammenligning (Du vs Bracket)"
                   />
-                  <div className="muted compare-formation-note" style={{ marginTop: 8 }}>
-                    Dette er snitt antall spillere i startelleveren per runde (season-to-date).
-                  </div>
                 </div>
               </>
             )}
@@ -505,27 +534,22 @@ export default function ComparePage() {
             {loading && <div className="muted">Laster…</div>}
             {error && <div className="error">Feil: {error}</div>}
 
-            {!loading && !error && !chips?.baseline && (
-              <div className="muted">
-                Ingen baseline chip-data funnet. Sjekk at computeBracketStatsSnapshot og
-                computeEntryInsights er kjørt.
-              </div>
-            )}
+            {!loading && !error && !chips?.baseline && <div className="muted">Laster…</div>}
 
             {!loading && !error && chips?.baseline && (
               <>
-                <div className="compare-subsection-title">Chip-bruk i din bracket</div>
                 <div className="compare-chip-usage">
                   <div className="compare-chip-usage-head">
                     <div>Chip</div>
-                    <div className="compare-chip-num">Brukt</div>
-                    <div className="compare-chip-num">Rate</div>
+                    <div className="compare-chip-num">Bruks-%</div>
+                    <div className="compare-chip-num">Du (poeng)</div>
+                    <div className="compare-chip-num">Bracket (poeng)</div>
                   </div>
                   {[
-                    { key: 'rich', label: 'Rik onkel' },
                     { key: '2capt', label: 'To kapteiner' },
                     { key: 'frush', label: 'Spissrush' },
                     { key: 'pdbus', label: 'Parker bussen' },
+                    { key: 'rich', label: 'Rik onkel' },
                     { key: 'wildcard1', label: 'Wildcard 1' },
                     { key: 'wildcard2', label: 'Wildcard 2' },
                   ].map((d) => {
@@ -538,37 +562,7 @@ export default function ComparePage() {
                     const rate =
                       used != null && sample != null && sample > 0 ? used / sample : null;
                     const barW = rate != null ? `${clamp(rate, 0, 1) * 100}%` : '0%';
-                    return (
-                      <div className="compare-chip-usage-row" key={d.key}>
-                        <div className="compare-chip-label">{d.label}</div>
-                        <div className="compare-chip-num">{used == null ? '—' : String(used)}</div>
-                        <div className="compare-chip-num">{rate == null ? '—' : pct(rate)}</div>
-                        <div className="compare-chip-bar" aria-hidden="true">
-                          <div
-                            className="compare-chip-bar-fill"
-                            style={{ ['--w' as string]: barW } as CSSProperties}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
 
-                <div className="compare-subsection-title compare-subsection-spaced">
-                  Poeng per chip
-                </div>
-                <div className="compare-chip-points">
-                  <div className="compare-chip-points-head">
-                    <div>Chip</div>
-                    <div className="compare-chip-num">Du</div>
-                    <div className="compare-chip-num">Bracket</div>
-                    <div className="compare-chip-num">Diff</div>
-                  </div>
-                  {[
-                    { key: '2capt', label: '2x Kaptein' },
-                    { key: 'frush', label: 'Free Rush' },
-                    { key: 'pdbus', label: 'Parker bussen' },
-                  ].map((d) => {
                     const arr = chips.pointsByChip?.[d.key] ?? chips.used?.[d.key];
                     const userPts =
                       Array.isArray(arr) && arr.length > 0 && typeof arr[0]?.points === 'number'
@@ -579,32 +573,38 @@ export default function ComparePage() {
                         ? (chips.baseline?.points?.avg2captPoints ?? null)
                         : d.key === 'frush'
                           ? (chips.baseline?.points?.avgFrushPoints ?? null)
-                          : (chips.baseline?.points?.avgPdbusPoints ?? null);
+                          : d.key === 'pdbus'
+                            ? (chips.baseline?.points?.avgPdbusPoints ?? null)
+                            : null;
                     const diff =
                       userPts != null && bracketPts != null ? userPts - bracketPts : null;
                     return (
-                      <div className="compare-chip-points-row" key={d.key}>
+                      <div className="compare-chip-usage-row" key={d.key}>
                         <div className="compare-chip-label">{d.label}</div>
+                        <div className="compare-chip-num">{rate == null ? '—' : pct(rate)}</div>
                         <div className="compare-chip-num">
-                          {userPts == null ? '—' : fmt(userPts, 0)}
+                          {userPts == null ? (
+                            '—'
+                          ) : diff != null ? (
+                            <span className={`compare-chip ${chipTone(diff)}`}>
+                              <span className="compare-chip-strong">{fmt(userPts, 0)}</span>
+                            </span>
+                          ) : (
+                            fmt(userPts, 0)
+                          )}
                         </div>
                         <div className="compare-chip-num muted">
                           {bracketPts == null ? '—' : fmt(bracketPts, 2)}
                         </div>
-                        <div className="compare-chip-num">
-                          <span className={`compare-chip ${chipTone(diff)}`}>
-                            <span className="compare-chip-strong">
-                              {diff == null ? '—' : signFmt(diff, 2)}
-                            </span>
-                          </span>
+                        <div className="compare-chip-bar" aria-hidden="true">
+                          <div
+                            className="compare-chip-bar-fill"
+                            style={{ ['--w' as string]: barW } as CSSProperties}
+                          />
                         </div>
                       </div>
                     );
                   })}
-                </div>
-                <div className="muted" style={{ marginTop: 10 }}>
-                  Baseline sample size:{' '}
-                  {chips.baseline.sampleSize == null ? '—' : String(chips.baseline.sampleSize)}
                 </div>
               </>
             )}
@@ -622,9 +622,7 @@ export default function ComparePage() {
             {loading && <div className="muted">Laster…</div>}
             {error && <div className="error">Feil: {error}</div>}
 
-            {!loading && !error && !riskSummary && (
-              <div className="muted">Ingen data ennå. (Sjekk at EntryInsights er oppdatert.)</div>
-            )}
+            {!loading && !error && !riskSummary && <div className="muted">Laster…</div>}
 
             {!loading && !error && riskSummary && (
               <>
@@ -737,7 +735,7 @@ export default function ComparePage() {
 
                       <div className="compare-kpis" style={{ marginTop: 14 }}>
                         <div className="compare-kpi">
-                          <div className="compare-kpi-label">Hits</div>
+                          <div className="compare-kpi-label">Antall hits</div>
                           <div className="compare-kpi-value-row">
                             <div className="compare-kpi-value">
                               {riskSummary.userHitCount == null
@@ -745,7 +743,6 @@ export default function ComparePage() {
                                 : Math.round(riskSummary.userHitCount)}
                             </div>
                           </div>
-                          <div className="compare-kpi-sub">Antall hits (season-to-date).</div>
                         </div>
                         <div className="compare-kpi">
                           <div className="compare-kpi-label">Bracket-snitt</div>
@@ -756,7 +753,6 @@ export default function ComparePage() {
                                 : fmt(riskSummary.baselineHitCount, 1)}
                             </div>
                           </div>
-                          <div className="compare-kpi-sub">Snitt antall hits i din bracket.</div>
                         </div>
                       </div>
                     </>

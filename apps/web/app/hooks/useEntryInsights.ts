@@ -107,6 +107,9 @@ export type EntryInsightsResponse = {
     computedThroughGw?: number;
     overallRankNow?: number | null;
     bracket?: { id: number; name: string; rankFrom: number; rankTo: number } | null;
+    naturalBracket?: { id: number; name: string; rankFrom: number; rankTo: number } | null;
+    bracketIsOverride?: boolean;
+    availableBrackets?: Array<{ id: number; name: string; rankFrom: number; rankTo: number }>;
 
     entrySeasonTotals?: {
       lastUpdatedGw: number;
@@ -122,7 +125,7 @@ export type EntryInsightsResponse = {
   };
 };
 
-export function useEntryInsights(entryId: number | null) {
+export function useEntryInsights(entryId: number | null, bracketId?: number | null) {
   const [data, setData] = useState<EntryInsightsResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -142,7 +145,10 @@ export function useEntryInsights(entryId: number | null) {
       setError(null);
 
       try {
-        const res = await fetch(`${API_BASE}/entries/${entryId}/insights`, {
+        const url = new URL(`${API_BASE}/entries/${entryId}/insights`);
+        if (bracketId != null) url.searchParams.set('bracketId', String(bracketId));
+
+        const res = await fetch(url.toString(), {
           signal: controller.signal,
         });
 
@@ -162,7 +168,7 @@ export function useEntryInsights(entryId: number | null) {
     run();
 
     return () => controller.abort();
-  }, [entryId]);
+  }, [entryId, bracketId]);
 
   return { data, loading, error };
 }

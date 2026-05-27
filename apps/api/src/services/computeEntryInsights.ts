@@ -437,7 +437,11 @@ async function ensureEntrySeasonTotalsUpToDate(
   });
 }
 
-export async function computeEntryInsights(prisma: PrismaClient, entryId: number) {
+export async function computeEntryInsights(
+  prisma: PrismaClient,
+  entryId: number,
+  opts?: { bracketIdOverride?: number | null }
+) {
   const lastFinished = await prisma.gameweek.findFirst({
     where: { finished: true },
     orderBy: { id: 'desc' },
@@ -531,7 +535,17 @@ export async function computeEntryInsights(prisma: PrismaClient, entryId: number
     select: { id: true, name: true, rankFrom: true, rankTo: true, active: true },
     orderBy: { rankFrom: 'asc' },
   });
-  const bracket = findBracketForRank(overallRankNow, brackets);
+  const naturalBracket = findBracketForRank(overallRankNow, brackets);
+  let bracket = naturalBracket;
+  let bracketIsOverride = false;
+  if (opts?.bracketIdOverride != null) {
+    const requested = brackets.find((b) => b.id === opts.bracketIdOverride && b.active);
+    if (!requested) {
+      throw new Error(`BRACKET_NOT_FOUND:${opts.bracketIdOverride}`);
+    }
+    bracket = requested;
+    bracketIsOverride = true;
+  }
 
   const bracketStats = bracket
     ? await prisma.bracketStats.findUnique({
@@ -803,6 +817,18 @@ export async function computeEntryInsights(prisma: PrismaClient, entryId: number
       bracket: bracket
         ? { id: bracket.id, name: bracket.name, rankFrom: bracket.rankFrom, rankTo: bracket.rankTo }
         : null,
+      naturalBracket: naturalBracket
+        ? {
+            id: naturalBracket.id,
+            name: naturalBracket.name,
+            rankFrom: naturalBracket.rankFrom,
+            rankTo: naturalBracket.rankTo,
+          }
+        : null,
+      bracketIsOverride,
+      availableBrackets: brackets
+        .filter((b) => b.active)
+        .map((b) => ({ id: b.id, name: b.name, rankFrom: b.rankFrom, rankTo: b.rankTo })),
       entrySeasonTotals: {
         lastUpdatedGw: totals?.lastUpdatedGw ?? 0,
         gwCount,
@@ -818,16 +844,18 @@ export async function computeEntryInsights(prisma: PrismaClient, entryId: number
     },
   };
 
-  await prisma.entryInsights.upsert({
-    where: { entryId },
-    create: { entryId, computedThroughGameweekId: computedThroughGw, version: 6, data },
-    update: {
-      computedThroughGameweekId: computedThroughGw,
-      version: 6,
-      data,
-      computedAt: new Date(),
-    },
-  });
+  if (!bracketIsOverride) {
+    await prisma.entryInsights.upsert({
+      where: { entryId },
+      create: { entryId, computedThroughGameweekId: computedThroughGw, version: 6, data },
+      update: {
+        computedThroughGameweekId: computedThroughGw,
+        version: 6,
+        data,
+        computedAt: new Date(),
+      },
+    });
+  }
 
   return data;
 }

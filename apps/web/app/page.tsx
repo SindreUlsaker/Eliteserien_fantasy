@@ -3,7 +3,6 @@
 import { useMemo, useState } from 'react';
 import { useUser } from './user-context';
 import { OverallRankCard } from './overall-rank-card';
-import { useEntryInsights } from './hooks/useEntryInsights';
 import { useEntryTeam, PlayerPickView } from './hooks/useEntryTeam';
 
 type EntryHit = {
@@ -44,8 +43,8 @@ function TeamRow({ p }: { p: PlayerPickView }) {
         alignItems: 'center',
         padding: '8px 10px',
         borderRadius: 12,
-        border: '1px solid rgba(255,255,255,0.10)',
-        background: 'rgba(0,0,0,0.18)',
+        border: '1px solid var(--border)',
+        background: 'var(--surface-strong)',
       }}
     >
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -55,8 +54,8 @@ function TeamRow({ p }: { p: PlayerPickView }) {
             fontSize: 12,
             padding: '4px 8px',
             borderRadius: 999,
-            border: '1px solid rgba(255,255,255,0.12)',
-            background: 'rgba(255,255,255,0.06)',
+            border: '1px solid var(--border)',
+            background: 'var(--surface)',
             opacity: 0.95,
             width: 54,
             textAlign: 'center',
@@ -84,8 +83,8 @@ function TeamRow({ p }: { p: PlayerPickView }) {
                 fontSize: 11,
                 padding: '2px 8px',
                 borderRadius: 999,
-                border: '1px solid rgba(255,255,255,0.12)',
-                background: 'rgba(255,255,255,0.06)',
+                border: '1px solid var(--border)',
+                background: 'var(--surface)',
                 opacity: 0.95,
               }}
               title={p.isCaptain ? 'Captain' : p.isViceCaptain ? 'Vice captain' : 'Multiplier'}
@@ -125,11 +124,6 @@ function TeamSection({ title, list }: { title: string; list: PlayerPickView[] })
 
 export default function HomePage() {
   const { selectedEntry, setSelectedEntry, isLoading } = useUser();
-  const {
-    data: insightsData,
-    loading: insightsLoading,
-    error: insightsError,
-  } = useEntryInsights(selectedEntry?.id ?? null);
 
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState<EntryHit[]>([]);
@@ -248,7 +242,7 @@ export default function HomePage() {
             </div>
           </section>
 
-          {/* “Dashboard grid”: graf + stats */}
+          {/* “Dashboard grid”: graf */}
           <section className="dashboard">
             <div className="dashboard-main card">
               <div className="card-pad">
@@ -257,45 +251,6 @@ export default function HomePage() {
                   apiBase={API_BASE}
                   onSelectGw={openTeamForGw}
                 />
-              </div>
-            </div>
-
-            <div className="dashboard-stats">
-              <div className="stat card">
-                <div className="card-pad">
-                  <div className="stat-label">Kaptein</div>
-                  <div className="stat-value">
-                    Returns (≥ 5 poeng):{' '}
-                    <span className="stat-strong">
-                      {insightsData?.insights?.captain
-                        ? `${insightsData.insights.captain.returns5Plus}/${insightsData.insights.captain.usedGameweeks}`
-                        : '—'}
-                    </span>
-                  </div>
-                  {insightsLoading && <div className="muted">Laster…</div>}
-                  {insightsError && <div className="error">Feil: {insightsError}</div>}
-                </div>
-              </div>
-
-              <div className="stat card">
-                <div className="card-pad">
-                  <div className="stat-label">Beste GW</div>
-                  <div className="stat-value">—</div>
-                </div>
-              </div>
-
-              <div className="stat card">
-                <div className="card-pad">
-                  <div className="stat-label">Verste GW</div>
-                  <div className="stat-value">—</div>
-                </div>
-              </div>
-
-              <div className="stat card">
-                <div className="card-pad">
-                  <div className="stat-label">Stabilitet</div>
-                  <div className="stat-value">—</div>
-                </div>
               </div>
             </div>
           </section>
@@ -322,10 +277,10 @@ export default function HomePage() {
                   maxHeight: 'min(88vh, 900px)',
                   overflow: 'auto',
                   borderRadius: 16,
-                  border: '1px solid rgba(255,255,255,0.10)',
-                  background:
-                    'linear-gradient(180deg, rgba(20,20,20,0.98) 0%, rgba(10,10,10,0.98) 100%)',
-                  boxShadow: '0 20px 60px rgba(0,0,0,0.55)',
+                  border: '1px solid var(--border)',
+                  background: 'var(--surface)',
+                  color: 'var(--text)',
+                  boxShadow: '0 20px 60px rgba(0,0,0,0.45)',
                   padding: 16,
                 }}
               >
@@ -375,8 +330,8 @@ export default function HomePage() {
                           style={{
                             padding: '10px 12px',
                             borderRadius: 12,
-                            border: '1px solid rgba(255,255,255,0.10)',
-                            background: 'rgba(0,0,0,0.15)',
+                            border: '1px solid var(--border)',
+                            background: 'var(--surface-strong)',
                             minWidth: 160,
                           }}
                         >
@@ -390,8 +345,8 @@ export default function HomePage() {
                           style={{
                             padding: '10px 12px',
                             borderRadius: 12,
-                            border: '1px solid rgba(255,255,255,0.10)',
-                            background: 'rgba(0,0,0,0.15)',
+                            border: '1px solid var(--border)',
+                            background: 'var(--surface-strong)',
                             minWidth: 220,
                           }}
                         >
@@ -412,7 +367,7 @@ export default function HomePage() {
                         style={{
                           marginTop: 18,
                           paddingTop: 12,
-                          borderTop: '1px solid rgba(255,255,255,0.10)',
+                          borderTop: '1px solid var(--border)',
                         }}
                       >
                         <div

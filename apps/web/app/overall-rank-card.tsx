@@ -51,6 +51,8 @@ function chipLabel(name: string) {
       return 'Spissrush';
     case 'rich':
       return 'Rik onkel';
+    case 'pdbus':
+      return 'Parker bussen';
     default:
       return name;
   }
@@ -66,6 +68,8 @@ function chipColor(name: string) {
       return '#5CFFB1'; // grønn
     case 'rich':
       return '#FFC857'; // gull
+    case 'pdbus':
+      return '#FF6B6B'; // korallrød
     default:
       return '#FFFFFF';
   }
