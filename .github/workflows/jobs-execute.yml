@@ -23,8 +23,6 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: pnpm/action-setup@v4
-        with:
-          version: 8
 
       - uses: actions/setup-node@v4
         with:
@@ -35,7 +33,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Generate Prisma Client
-        run: pnpm db:generate
+        run: npx prisma generate --schema=prisma/schema.prisma
 
       - name: Apply database migrations
         run: npx prisma migrate deploy --schema=prisma/schema.prisma
