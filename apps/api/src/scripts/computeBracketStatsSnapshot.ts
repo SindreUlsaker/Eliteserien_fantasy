@@ -299,7 +299,9 @@ async function main() {
     const sumFwdC = totals.reduce((a, t) => a + (t.xiFwdCountTotal ?? 0), 0);
 
     const sumTransferCost = totals.reduce((a, t) => a + (t.transferCostTotal ?? 0), 0);
-    const sumHitCount = totals.reduce((a, t) => a + (t.hitCount ?? 0), 0);
+    // hitCount-feltet i DB kan være feil for historiske data (talte GWer med hits,
+    // ikke faktiske hits). Derive fra transferCostTotal (4p per hit).
+    const sumHitCount = totals.reduce((a, t) => a + (t.transferCostTotal ?? 0) / 4, 0);
 
     // EO sums
     const sumTeamEOTotal = totals.reduce((a, t) => a + (t.teamEOTotal ?? 0), 0);

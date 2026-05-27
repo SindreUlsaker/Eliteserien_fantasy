@@ -6,7 +6,6 @@ import { useUser } from '../user-context';
 import { useEntryInsights } from '../hooks/useEntryInsights';
 
 type PosBuckets = { gkp: number; def: number; mid: number; fwd: number };
-type Tilt = 'SAFE' | 'NEUTRAL' | 'DIFFERENT' | 'UNKNOWN';
 
 function clamp(v: number, min: number, max: number) {
   return Math.max(min, Math.min(max, v));
@@ -41,57 +40,143 @@ function posCaptainOrTeam(
   }
 }
 
-function tiltFromPos(pos: number | null): Tilt {
-  if (pos == null) return 'UNKNOWN';
-  if (pos <= 0.35) return 'SAFE';
-  if (pos >= 0.65) return 'DIFFERENT';
-  return 'NEUTRAL';
+// Posisjoner er i [0, 1]: 0 = mest trygg (venstre), 0.5 = snitt, 1 = mest
+// annerledes (høyre). Vi bygger body-teksten ved å oversette hver akse til
+// et adjektiv uavhengig av de andre, og bestemmer overskrift fra en
+// prioritert liste av hardkodede regler.
+
+function captainPhrase(pos: number): string {
+  if (pos <= 0.2) return 'svært populære kapteinvalg';
+  if (pos < 0.4) return 'ganske populære kapteinvalg';
+  if (pos <= 0.6) return 'vanlige kapteinvalg';
+  if (pos < 0.8) return 'ganske annerledes kapteinvalg';
+  return 'veldig annerledes kapteinvalg';
 }
 
-function overallComment(tilts: { captain: Tilt; team: Tilt; hits: Tilt }) {
-  const vals = [tilts.captain, tilts.team, tilts.hits];
-  const known = vals.filter((x) => x !== 'UNKNOWN');
+function teamPhrase(pos: number): string {
+  if (pos <= 0.2) return 'svært standard';
+  if (pos < 0.4) return 'ganske standard';
+  if (pos <= 0.6) return 'vanlig';
+  if (pos < 0.8) return 'ganske variert';
+  return 'veldig variert';
+}
 
-  if (known.length < 2) {
+function hitsPhrase(pos: number): string {
+  if (pos <= 0.2) return 'svært få hits';
+  if (pos < 0.4) return 'ganske få hits';
+  if (pos <= 0.6) return 'et vanlig antall hits';
+  if (pos < 0.8) return 'ganske mange hits';
+  return 'aggressivt mange hits';
+}
+
+type Headline = { title: string; tone: 'pos' | 'neg' | 'mid' | 'muted' };
+
+function headlineFor(positions: { captain: number; team: number; hits: number }): Headline {
+  const { captain: c, team: t, hits: h } = positions;
+  const arr = [
+    { axis: 'captain' as const, v: c },
+    { axis: 'team' as const, v: t },
+    { axis: 'hits' as const, v: h },
+  ];
+  const sorted = [...arr].sort((a, b) => a.v - b.v);
+  const min = sorted[0];
+  const secondMin = sorted[1];
+  const secondMax = sorted[1];
+  const max = sorted[2];
+
+  // 1) Glad i å diffe — annerledes kaptein OG lag, men ikke aggressive hits.
+  if (c >= 0.6 && t >= 0.6 && h <= 0.6) {
+    return { title: 'Glad i å diffe', tone: 'neg' };
+  }
+
+  // 2) Aggressiv — alle aksene drar i annerledes-retning, eller én er ekstrem
+  //    samtidig som de andre også ligger meningsfullt over snittet.
+  const allHigh = c > 0.6 && t > 0.6 && h > 0.6;
+  const spreadHigh = sorted[0].v > 0.4 && sorted[1].v > 0.6 && sorted[2].v > 0.8;
+  if (allHigh || spreadHigh) {
+    return { title: 'Aggressiv', tone: 'neg' };
+  }
+
+  // 3) Template — populær kaptein, standard lag, ikke aggressiv på hits.
+  if (c < 0.4 && t < 0.4 && h < 0.6) {
+    return { title: 'Template', tone: 'pos' };
+  }
+
+  // 4) Midt på treet — alle aksene i [40, 60].
+  if (c >= 0.4 && c <= 0.6 && t >= 0.4 && t <= 0.6 && h >= 0.4 && h <= 0.6) {
+    return { title: 'Midt på treet', tone: 'mid' };
+  }
+
+  // 5) Én akse skiller seg ut – annerledes.
+  if (max.v >= 0.8 && max.v - secondMax.v >= 0.2) {
+    const t5 =
+      max.axis === 'hits'
+        ? 'Hits-aggressor'
+        : max.axis === 'captain'
+          ? 'Annerledes kaptein-velger'
+          : 'Variert laguttak';
+    return { title: t5, tone: 'neg' };
+  }
+
+  // 6) Én akse skiller seg ut – trygg.
+  if (min.v <= 0.2 && secondMin.v - min.v >= 0.2) {
+    const t6 =
+      min.axis === 'hits'
+        ? 'Forsiktig på hits'
+        : min.axis === 'captain'
+          ? 'Populær kaptein-velger'
+          : 'Standard laguttak';
+    return { title: t6, tone: 'pos' };
+  }
+
+  // 7) Blandet profil — tydelig sprik på begge sider.
+  if (arr.some((x) => x.v <= 0.3) && arr.some((x) => x.v >= 0.7)) {
+    return { title: 'Blandet profil', tone: 'mid' };
+  }
+
+  // 8/9) Netto-tilt.
+  const net = (c - 0.5 + (t - 0.5) + (h - 0.5)) / 3;
+  if (net >= 0.075) return { title: 'Lener mot annerledes', tone: 'neg' };
+  if (net <= -0.075) return { title: 'Lener trygt', tone: 'pos' };
+
+  // 10) Fallback.
+  return { title: 'Nær snittet', tone: 'mid' };
+}
+
+function overallComment(positions: {
+  captain: number | null;
+  team: number | null;
+  hits: number | null;
+}): { title: string; text: string; tone: 'pos' | 'neg' | 'mid' | 'muted' } {
+  const knownCount = [positions.captain, positions.team, positions.hits].filter(
+    (p) => p != null
+  ).length;
+
+  if (knownCount < 2) {
     return {
       title: 'Ikke nok data ennå',
       text: 'Vi trenger flere ferdige runder med oppdaterte bracket-tall før vi kan gi en stabil spillestil-profil.',
-      tone: 'muted' as const,
+      tone: 'muted',
     };
   }
 
-  const safeCount = known.filter((x) => x === 'SAFE').length;
-  const diffCount = known.filter((x) => x === 'DIFFERENT').length;
+  // Bygg body uavhengig per akse. Hvis en akse mangler, bytt frasen med
+  // «ukjent».
+  const c = positions.captain;
+  const t = positions.team;
+  const h = positions.hits;
+  const captStr = c == null ? 'ukjent kaptein-profil' : captainPhrase(c);
+  const teamStr = t == null ? 'ukjent' : teamPhrase(t);
+  const hitsStr = h == null ? 'ukjent hits-profil' : hitsPhrase(h);
+  const text = `Du tar ${captStr}, lagvalget er ${teamStr}, og du har ${hitsStr}.`;
 
-  if (safeCount >= 2 && diffCount === 0) {
-    return {
-      title: 'Går ofte for tryggere valg',
-      text: 'Du ligger oftere på den trygge siden av snittet: populære kapteiner, mer standard lagvalg og/eller færre hits enn andre i samme bracket.',
-      tone: 'pos' as const,
-    };
+  // Overskrift krever alle tre akser. Hvis én mangler, bruk «Nær snittet».
+  if (c == null || t == null || h == null) {
+    return { title: 'Nær snittet', text, tone: 'mid' };
   }
 
-  if (diffCount >= 2 && safeCount === 0) {
-    return {
-      title: 'Lener mot mer annerledes valg',
-      text: 'Du havner oftere på den "annerledes" siden av snittet: mindre populære kapteiner, mer varierte lagvalg og/eller flere hits enn andre i samme bracket.',
-      tone: 'neg' as const,
-    };
-  }
-
-  if (diffCount >= 1 && safeCount >= 1) {
-    return {
-      title: 'Blandet profil',
-      text: 'På noen områder tar du mer annerledes valg enn snittet, men kompenserer med tryggere valg andre steder.',
-      tone: 'mid' as const,
-    };
-  }
-
-  return {
-    title: 'Nær snittet',
-    text: 'Totalt sett ligger du ofte nær gjennomsnittet i din bracket på kaptein, lag-EO og hits.',
-    tone: 'mid' as const,
-  };
+  const headline = headlineFor({ captain: c, team: t, hits: h });
+  return { title: headline.title, text, tone: headline.tone };
 }
 
 function fmt(n: number | null | undefined, digits = 2) {
@@ -652,12 +737,11 @@ export default function ComparePage() {
                       hitsPos = 0.5 + 0.5 * Math.min(t, 1);
                     }
                   }
-                  const tilts = {
-                    captain: tiltFromPos(captainPos),
-                    team: tiltFromPos(teamPos),
-                    hits: tiltFromPos(hitsPos),
-                  };
-                  const comment = overallComment(tilts);
+                  const comment = overallComment({
+                    captain: captainPos,
+                    team: teamPos,
+                    hits: hitsPos,
+                  });
                   return (
                     <>
                       <section className={`compare-style-summary compare-bullet-${comment.tone}`}>

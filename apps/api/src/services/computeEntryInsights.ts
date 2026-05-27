@@ -345,7 +345,7 @@ async function ensureEntrySeasonTotalsUpToDate(
 
     const cost = costByGw.get(gw) ?? 0;
     transferCostTotal += cost;
-    if (cost > 0) hitCount += 1;
+    hitCount += cost / 4;
 
     const capPicks = picks.filter((p) => p.is_captain || p.multiplier > 1);
     let captainPointsSum = 0;
@@ -596,8 +596,10 @@ export async function computeEntryInsights(
   const baselineAvgTransferCost =
     baseline?.risk?.avgTransferCost != null ? Number(baseline.risk.avgTransferCost) : null;
 
-  // Hit counts (for slider and UI)
-  const userHitCount = totals?.hitCount ?? 0;
+  // Hit counts (for slider and UI). Deriveres fra transferCostTotal (4p per hit)
+  // for å være korrekt også for entries som ble syncet før hitCount fikk riktig
+  // semantikk (tidligere talte den GWer med hits, ikke faktiske hits).
+  const userHitCount = (totals?.transferCostTotal ?? 0) / 4;
   const baselineHitCount = baselineHitRate != null ? baselineHitRate * gwCount : null;
 
   const baselineAvgTeamEO =

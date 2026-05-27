@@ -553,10 +553,10 @@ async function main() {
             });
           }
 
-          // transfers cost (hits)
+          // transfers cost (hits). Hvert hit koster 4 poeng, så hitCount = cost / 4.
           const cost = costByGw.get(gw) ?? 0;
           transferCostTotal += cost;
-          if (cost > 0) hitCount += 1;
+          hitCount += cost / 4;
 
           // Captain points: BASE poeng (ikke doblet). Ved 2capt/spissrush: flere kapteiner per GW.
           const capPicks = picks.filter((p) => p.is_captain || p.multiplier > 1);
