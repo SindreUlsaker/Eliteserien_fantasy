@@ -3,7 +3,7 @@ import { PrismaClient } from '@prisma/client';
 
 type NormalizedChipKey = 'wildcard1' | 'wildcard2' | '2capt' | 'frush' | 'rich' | 'pdbus' | string;
 
-function normalizeChipName(chipName: string, gameweekId: number): NormalizedChipKey {
+export function normalizeChipName(chipName: string, gameweekId: number): NormalizedChipKey {
   if (chipName === 'wildcard') return gameweekId >= 16 ? 'wildcard2' : 'wildcard1';
   return chipName as NormalizedChipKey;
 }
@@ -55,7 +55,7 @@ function elementTypeKey(elementType: number): 'gkp' | 'def' | 'mid' | 'fwd' | 'u
   return 'unk';
 }
 
-function chipNameForPoints(normalized: string): '2capt' | 'frush' | 'pdbus' | null {
+export function chipNameForPoints(normalized: string): '2capt' | 'frush' | 'pdbus' | null {
   const k = normalized.toLowerCase();
   if (
     k === '2capt' ||
@@ -72,7 +72,27 @@ function chipNameForPoints(normalized: string): '2capt' | 'frush' | 'pdbus' | nu
 
 type CaptainPerf = { gw: number; playerId: number; points: number };
 
-function findBracketForRank(
+export function parseTop3Json(v: unknown): CaptainPerf[] {
+  if (!Array.isArray(v)) return [];
+  const out: CaptainPerf[] = [];
+  for (const x of v) {
+    const gw = (x as any)?.gw;
+    const playerId = (x as any)?.playerId;
+    const points = (x as any)?.points;
+    if (typeof gw === 'number' && typeof playerId === 'number' && typeof points === 'number') {
+      out.push({ gw, playerId, points });
+    }
+  }
+  return out;
+}
+
+export function mergeTop3(existing: CaptainPerf[], add: CaptainPerf[]): CaptainPerf[] {
+  const merged = [...existing, ...add];
+  merged.sort((a, b) => b.points - a.points || a.gw - b.gw);
+  return merged.slice(0, 3);
+}
+
+export function findBracketForRank(
   rank: number | null | undefined,
   brackets: Array<{ id: number; name: string; rankFrom: number; rankTo: number; active: boolean }>
 ) {
@@ -386,6 +406,8 @@ async function ensureEntrySeasonTotalsUpToDate(
     lastSuccessfulGw = gw;
   }
 
+  const captainTop3Json = mergeTop3(parseTop3Json(prev?.captainTop3Json), newTopCandidates);
+
   await prisma.entrySeasonTotals.upsert({
     where: { entryId },
     update: {
@@ -393,6 +415,7 @@ async function ensureEntrySeasonTotalsUpToDate(
       gwCount,
       captainPointsTotal,
       captainSuccess5PlusCount,
+      captainTop3Json,
       xiGkpPointsTotal: xiGkp,
       xiDefPointsTotal: xiDef,
       xiMidPointsTotal: xiMid,
@@ -416,7 +439,7 @@ async function ensureEntrySeasonTotalsUpToDate(
       gwCount,
       captainPointsTotal,
       captainSuccess5PlusCount,
-      captainTop3Json: [],
+      captainTop3Json,
       xiGkpPointsTotal: xiGkp,
       xiDefPointsTotal: xiDef,
       xiMidPointsTotal: xiMid,

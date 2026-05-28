@@ -60,3 +60,6 @@ docker-compose.override.yml
 .turbo/
 .vercel
 *.tsbuildinfo
+
+# Local scratch
+test.py
