@@ -43,8 +43,8 @@ export default async function entryInsightsRoutes(
       try {
         const data = await computeEntryInsights(prisma, entryId, { bracketIdOverride });
 
-        // Cache litt
-        reply.header('Cache-Control', 'public, max-age=30');
+        // Cache i 5 min — data oppdateres kun et par ganger i uka
+        reply.header('Cache-Control', 'public, max-age=300');
 
         return reply.send(data);
       } catch (e) {

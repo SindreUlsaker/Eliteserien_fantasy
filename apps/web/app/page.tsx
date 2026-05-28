@@ -410,7 +410,7 @@ export default function HomePage() {
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="F.eks. 20287, FC Urzaiz, Jørgen Rui"
+              placeholder="F.eks. Sindre Ulsaker"
               className="input"
               onKeyDown={(e) => {
                 if (e.key === 'Enter') runSearch();

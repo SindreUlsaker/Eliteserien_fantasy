@@ -1,0 +1,29 @@
+name: Daily Uptime Check
+
+on:
+  schedule:
+    # 01:00 UTC = 02:00 norsk vintertid / 03:00 norsk sommertid
+    - cron: '0 1 * * *'
+  workflow_dispatch:
+
+jobs:
+  check:
+    name: Ping /health
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check API health endpoint
+        run: |
+          status=$(curl -sw "%{http_code}" -o /tmp/body --max-time 30 https://esf-insight.fly.dev/health)
+          echo "HTTP status: $status"
+          echo "Body:"
+          cat /tmp/body
+          echo ""
+          if [ "$status" != "200" ]; then
+            echo "::error::Health endpoint returned $status"
+            exit 1
+          fi
+          if ! grep -q '"database":"connected"' /tmp/body; then
+            echo "::error::Database not connected"
+            exit 1
+          fi
+          echo "OK"
