@@ -32,6 +32,7 @@ export type EntryInsightsResponse = {
         playerId: number;
         playerName: string;
         gw: number;
+        gwName?: string | null;
         points: number;
       }>;
     };

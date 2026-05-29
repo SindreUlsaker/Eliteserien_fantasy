@@ -34,6 +34,7 @@ export type PlayerPickView = {
 export type EntryTeamResponse = {
   entryId: number;
   gw: number;
+  gwName?: string | null;
   sync?: { didSync: boolean };
 
   entryHistory?: {

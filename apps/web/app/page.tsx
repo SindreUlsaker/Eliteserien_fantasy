@@ -310,7 +310,7 @@ export default function HomePage() {
                       Lag i runden
                     </div>
                     <div style={{ fontSize: 20, fontWeight: 800, marginTop: 3 }}>
-                      {selectedGw ? `GW ${selectedGw}` : '—'}
+                      {selectedGw ? `GW ${teamData?.gwName?.match(/\d+/)?.[0] ?? selectedGw}` : '—'}
                     </div>
                     {teamData?.meta?.missingPointsCount ? (
                       <div style={{ fontSize: 12, opacity: 0.7, marginTop: 4 }}>

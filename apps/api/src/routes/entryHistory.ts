@@ -1,4 +1,9 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyPluginOptions } from 'fastify';
+import type { PrismaClient } from '@prisma/client';
+
+interface EntryHistoryPluginOptions extends FastifyPluginOptions {
+  prisma: PrismaClient;
+}
 
 type RemoteEntryHistory = {
   current?: Array<{
@@ -17,6 +22,7 @@ type RemoteEntryHistory = {
 
 type RankPoint = {
   gw: number;
+  gwName: string | null;
   overallRank: number;
 };
 type ChipPlay = {
@@ -25,7 +31,9 @@ type ChipPlay = {
   time: string;
 };
 
-export async function entryHistoryRoutes(app: FastifyInstance) {
+export async function entryHistoryRoutes(app: FastifyInstance, options: EntryHistoryPluginOptions) {
+  const { prisma } = options;
+
   app.get<{ Params: { entryId: string } }>('/entries/:entryId/overall-rank', async (req, reply) => {
     const entryId = Number(req.params.entryId);
     if (!Number.isFinite(entryId) || entryId <= 0) {
@@ -52,10 +60,25 @@ export async function entryHistoryRoutes(app: FastifyInstance) {
 
     const data = (await res.json()) as RemoteEntryHistory;
 
-    const points: RankPoint[] = (data.current ?? [])
-      .filter((row) => typeof row?.event === 'number' && typeof row?.overall_rank === 'number')
+    const rawPoints = (data.current ?? []).filter(
+      (row) => typeof row?.event === 'number' && typeof row?.overall_rank === 'number'
+    );
+
+    const gwIds = Array.from(new Set(rawPoints.map((row) => row.event)));
+    const gameweeks =
+      gwIds.length > 0
+        ? await prisma.gameweek.findMany({
+            where: { id: { in: gwIds } },
+            select: { id: true, name: true },
+          })
+        : [];
+    const nameByGw = new Map<number, string>();
+    for (const g of gameweeks) nameByGw.set(g.id, g.name);
+
+    const points: RankPoint[] = rawPoints
       .map((row) => ({
         gw: row.event,
+        gwName: nameByGw.get(row.event) ?? null,
         overallRank: row.overall_rank as number,
       }))
       .sort((a, b) => a.gw - b.gw);

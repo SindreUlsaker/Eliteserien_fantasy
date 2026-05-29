@@ -50,7 +50,7 @@ server.register(rateLimit, {
 // Register routes
 server.register(healthRoutes, { prisma });
 server.register(entriesRoutes, { prisma });
-server.register(entryHistoryRoutes, {});
+server.register(entryHistoryRoutes, { prisma });
 server.register(entryInsightsRoutes, { prisma });
 server.register(entryTeamRoutes, { prisma });
 

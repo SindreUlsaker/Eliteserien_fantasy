@@ -215,6 +215,7 @@ export default async function entryTeamRoutes(
           value: true,
           eventTransfers: true,
           eventTransfersCost: true,
+          gameweek: { select: { name: true } },
           picks: {
             orderBy: { position: 'asc' },
             select: {
@@ -310,6 +311,7 @@ export default async function entryTeamRoutes(
       return reply.send({
         entryId,
         gw: eg.gameweekId,
+        gwName: eg.gameweek?.name ?? null,
         sync: { didSync },
         entryHistory: {
           points: eg.points,

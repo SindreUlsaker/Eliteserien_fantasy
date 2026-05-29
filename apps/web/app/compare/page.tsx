@@ -511,7 +511,9 @@ export default function ComparePage() {
                           <div className="compare-topitem-rank muted">#{x.rank}</div>
                           <div className="compare-topitem-main">
                             <div className="compare-topitem-name">{x.playerName}</div>
-                            <div className="compare-topitem-sub muted">GW {x.gw}</div>
+                            <div className="compare-topitem-sub muted">
+                              GW {x.gwName?.match(/\d+/)?.[0] ?? x.gw}
+                            </div>
                           </div>
                           <div className="compare-topitem-points">{fmt(x.points, 0)}</div>
                         </div>

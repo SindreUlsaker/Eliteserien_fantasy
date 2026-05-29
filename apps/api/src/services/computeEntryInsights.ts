@@ -671,11 +671,23 @@ export async function computeEntryInsights(
   const nameById = new Map<number, string>();
   for (const p of players) nameById.set(p.id, p.webName);
 
+  const top3GwIds = Array.from(new Set(top3.map((x) => x.gw)));
+  const top3Gameweeks =
+    top3GwIds.length > 0
+      ? await prisma.gameweek.findMany({
+          where: { id: { in: top3GwIds } },
+          select: { id: true, name: true },
+        })
+      : [];
+  const gwNameById = new Map<number, string>();
+  for (const g of top3Gameweeks) gwNameById.set(g.id, g.name);
+
   const topCaptains = top3.map((x, i) => ({
     rank: i + 1,
     playerId: x.playerId,
     playerName: nameById.get(x.playerId) ?? `#${x.playerId}`,
     gw: x.gw,
+    gwName: gwNameById.get(x.gw) ?? null,
     points: x.points,
   }));
 

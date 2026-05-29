@@ -11,7 +11,7 @@ import {
   YAxis,
 } from 'recharts';
 
-type RankPoint = { gw: number; overallRank: number };
+type RankPoint = { gw: number; gwName?: string | null; overallRank: number };
 
 type ChipPlay = {
   gw: number;
@@ -128,6 +128,17 @@ export function OverallRankCard({ entryId, apiBase, onSelectGw }: Props) {
     return m;
   }, [chips]);
 
+  const roundByGw = useMemo(() => {
+    const m = new Map<number, number>();
+    for (const p of points) {
+      const match = p.gwName?.match(/\d+/);
+      if (match) m.set(p.gw, Number(match[0]));
+    }
+    return m;
+  }, [points]);
+
+  const roundForGw = (gw: number) => roundByGw.get(gw) ?? gw;
+
   const summary = useMemo(() => {
     if (points.length === 0) return null;
 
@@ -193,13 +204,15 @@ export function OverallRankCard({ entryId, apiBase, onSelectGw }: Props) {
             {summary ? formatInt(summary.last.overallRank) : '—'}
           </div>
           <div style={{ fontSize: 12, opacity: 0.75, marginTop: 2 }}>
-            {summary ? `Sist oppdatert: GW ${summary.last.gw}` : 'Ingen data'}
+            {summary ? `Sist oppdatert: GW ${roundForGw(summary.last.gw)}` : 'Ingen data'}
           </div>
         </div>
 
         <div style={{ textAlign: 'right' }}>
           <div style={{ fontSize: 12, opacity: 0.75, marginTop: 2 }}>
-            {summary?.prev ? `Fra GW ${summary.prev.gw} → ${summary.last.gw}` : 'Trenger 2 runder'}
+            {summary?.prev
+              ? `Fra GW ${roundForGw(summary.prev.gw)} → ${roundForGw(summary.last.gw)}`
+              : 'Trenger 2 runder'}
           </div>
           <div style={{ fontSize: 18, fontWeight: 700, marginTop: 4 }}>
             {summary?.delta == null ? '—' : deltaLabel(summary.delta)}
@@ -219,7 +232,7 @@ export function OverallRankCard({ entryId, apiBase, onSelectGw }: Props) {
         >
           <div style={{ fontSize: 12, opacity: 0.75 }}>Beste</div>
           <div style={{ fontSize: 16, fontWeight: 700 }}>
-            {summary ? `${formatInt(summary.best)} (GW ${summary.bestPoint.gw})` : '—'}
+            {summary ? `${formatInt(summary.best)} (GW ${roundForGw(summary.bestPoint.gw)})` : '—'}
           </div>
         </div>
 
@@ -234,7 +247,9 @@ export function OverallRankCard({ entryId, apiBase, onSelectGw }: Props) {
         >
           <div style={{ fontSize: 12, opacity: 0.75 }}>Verste</div>
           <div style={{ fontSize: 16, fontWeight: 700 }}>
-            {summary ? `${formatInt(summary.worst)} (GW ${summary.worstPoint.gw})` : '—'}
+            {summary
+              ? `${formatInt(summary.worst)} (GW ${roundForGw(summary.worstPoint.gw)})`
+              : '—'}
           </div>
         </div>
       </div>
@@ -294,6 +309,7 @@ export function OverallRankCard({ entryId, apiBase, onSelectGw }: Props) {
                   tickLine={false}
                   axisLine={false}
                   tick={{ opacity: 0.8, fontSize: 12 }}
+                  tickFormatter={(value) => String(roundForGw(Number(value)))}
                 />
                 <YAxis
                   dataKey="overallRank"
@@ -310,10 +326,9 @@ export function OverallRankCard({ entryId, apiBase, onSelectGw }: Props) {
                   formatter={(value) => formatInt(Number(value))}
                   labelFormatter={(label) => {
                     const gw = Number(label);
+                    const lbl = `GW ${roundForGw(gw)}`;
                     const chipNames = chipByGw.get(gw)?.map((c) => chipLabel(c.name)) ?? [];
-                    return chipNames.length > 0
-                      ? `GW ${gw} · Chip: ${chipNames.join(', ')}`
-                      : `GW ${gw}`;
+                    return chipNames.length > 0 ? `${lbl} · Chip: ${chipNames.join(', ')}` : lbl;
                   }}
                   contentStyle={{
                     background: 'rgba(10,10,10,0.92)',
