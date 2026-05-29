@@ -95,7 +95,7 @@ async function fetchJsonWithRetry<T>(
   throw new Error(`Failed after retries: ${url}`);
 }
 
-function elementTypeKey(elementType: number) {
+export function elementTypeKey(elementType: number) {
   if (elementType === 1) return 'gkp';
   if (elementType === 2) return 'def';
   if (elementType === 3) return 'mid';
@@ -103,14 +103,14 @@ function elementTypeKey(elementType: number) {
   return 'unk';
 }
 
-function normalizeChipName(name: string, chipGw: number) {
+export function normalizeChipName(name: string, chipGw: number) {
   const raw = name.toLowerCase();
   if (raw === 'wildcard') return chipGw <= 15 ? 'wildcard1' : 'wildcard2';
   return raw;
 }
 
 /** Maps API chip name to our 2capt/frush/pdbus keys for point computation. */
-function chipNameForPoints(normalized: string): '2capt' | 'frush' | 'pdbus' | null {
+export function chipNameForPoints(normalized: string): '2capt' | 'frush' | 'pdbus' | null {
   const k = normalized.toLowerCase();
   if (
     k === '2capt' ||
@@ -125,7 +125,7 @@ function chipNameForPoints(normalized: string): '2capt' | 'frush' | 'pdbus' | nu
   return null;
 }
 
-function parseTop3Json(v: unknown): CaptainPerf[] {
+export function parseTop3Json(v: unknown): CaptainPerf[] {
   if (!Array.isArray(v)) return [];
   const out: CaptainPerf[] = [];
   for (const x of v) {
@@ -139,7 +139,7 @@ function parseTop3Json(v: unknown): CaptainPerf[] {
   return out;
 }
 
-function mergeTop3(existing: CaptainPerf[], add: CaptainPerf[]): CaptainPerf[] {
+export function mergeTop3(existing: CaptainPerf[], add: CaptainPerf[]): CaptainPerf[] {
   const merged = [...existing, ...add];
 
   // dedupe same gw (hvis rerun). Vi lar “best points” vinne per gw.
@@ -689,10 +689,12 @@ async function main() {
   );
 }
 
-main()
-  .then(async () => prisma.$disconnect())
-  .catch(async (e) => {
-    console.error(e);
-    await prisma.$disconnect();
-    process.exit(1);
-  });
+if (require.main === module) {
+  main()
+    .then(async () => prisma.$disconnect())
+    .catch(async (e) => {
+      console.error(e);
+      await prisma.$disconnect();
+      process.exit(1);
+    });
+}

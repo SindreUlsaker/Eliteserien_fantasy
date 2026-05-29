@@ -11,17 +11,17 @@ const FINISHED_CHECK_NEXT_DAY_MINUTE_UTC = Number(
   process.env.JOB_FINISHED_CHECK_NEXT_DAY_MINUTE_UTC ?? 0
 );
 
-type BootstrapEvent = {
+export type BootstrapEvent = {
   id: number;
   deadline_time: string;
   finished: boolean;
 };
 
-type BootstrapResponse = {
+export type BootstrapResponse = {
   events?: unknown;
 };
 
-type FixtureRow = {
+export type FixtureRow = {
   event: number | null;
   kickoff_time: string | null;
 };
@@ -30,7 +30,7 @@ function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null;
 }
 
-function parseIsoOrThrow(value: string, fieldName: string): Date {
+export function parseIsoOrThrow(value: string, fieldName: string): Date {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) {
     throw new Error(`Invalid ISO datetime for ${fieldName}: ${value}`);
@@ -38,11 +38,11 @@ function parseIsoOrThrow(value: string, fieldName: string): Date {
   return d;
 }
 
-function addMinutes(base: Date, minutes: number): Date {
+export function addMinutes(base: Date, minutes: number): Date {
   return new Date(base.getTime() + minutes * 60_000);
 }
 
-function nextDayAtUtc(base: Date, hourUtc: number, minuteUtc: number): Date {
+export function nextDayAtUtc(base: Date, hourUtc: number, minuteUtc: number): Date {
   return new Date(
     Date.UTC(
       base.getUTCFullYear(),
@@ -75,7 +75,7 @@ async function fetchJson<T>(path: string): Promise<T> {
   return (await res.json()) as T;
 }
 
-function parseEvents(data: BootstrapResponse): BootstrapEvent[] {
+export function parseEvents(data: BootstrapResponse): BootstrapEvent[] {
   const eventsRaw = data.events;
   if (!Array.isArray(eventsRaw)) {
     throw new Error('bootstrap-static missing events array');
@@ -108,7 +108,7 @@ function parseEvents(data: BootstrapResponse): BootstrapEvent[] {
   return out;
 }
 
-function parseFixtures(data: unknown): FixtureRow[] {
+export function parseFixtures(data: unknown): FixtureRow[] {
   if (!Array.isArray(data)) {
     throw new Error('fixtures endpoint did not return an array');
   }
@@ -129,7 +129,7 @@ function parseFixtures(data: unknown): FixtureRow[] {
   return out;
 }
 
-function getLastKickoffByEvent(fixtures: FixtureRow[]): Map<number, Date> {
+export function getLastKickoffByEvent(fixtures: FixtureRow[]): Map<number, Date> {
   const byEvent = new Map<number, Date>();
 
   for (const fx of fixtures) {
@@ -245,11 +245,13 @@ async function main() {
   );
 }
 
-main()
-  .catch((e) => {
-    console.error('planScheduledJobs failed:', e);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+if (require.main === module) {
+  main()
+    .catch((e) => {
+      console.error('planScheduledJobs failed:', e);
+      process.exitCode = 1;
+    })
+    .finally(async () => {
+      await prisma.$disconnect();
+    });
+}
